@@ -247,6 +247,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Остальные функции остаются без изменений (например, download_torrent, add_torrent_to_qbittorrent, команды Telegram)
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
+        "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
+        "/help - показать справку\n"
+        "/list - показать отслеживаемые раздачи\n"
+        "/clear - очистить категорию 'from telegram' в qBittorrent\n"
+        "/status - проверить статус подключений"
+    )
+
 
 async def main():
     global qbt_client
