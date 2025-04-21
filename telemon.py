@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
 from qbittorrentapi import Client as QBittorrentClient
 
 # Настройка логирования
@@ -335,27 +335,30 @@ def main():
     # Инициализация БД
     init_db()
     
-    # Создание экземпляра приложения
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    # Создание экземпляра Updater вместо Application
+    updater = Updater(token=TELEGRAM_TOKEN)
+    dispatcher = updater.dispatcher
     
     # Добавление обработчиков команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("list", list_torrents))
-    application.add_handler(CommandHandler("clear", clear_category))
-    application.add_handler(CallbackQueryHandler(button_callback))
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CommandHandler("list", list_torrents))
+    dispatcher.add_handler(CommandHandler("clear", clear_category))
+    dispatcher.add_handler(CallbackQueryHandler(button_callback))
     
-    # Обработчик URL
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
+    # Обработчик URL (используйте Filters вместо filters)
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_url))
     
     # Настройка периодической проверки обновлений
-    job_queue = application.job_queue
+    job_queue = updater.job_queue
     job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
     
     logger.info("Bot started")
     
     # Запуск бота
-    application.run_polling()
+    updater.start_polling()
+    updater.idle()
+
 
 if __name__ == "__main__":
     main()
