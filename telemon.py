@@ -411,6 +411,13 @@ async def main():
     # Инициализация БД
     init_db()
     
+    # Создание экземпляра приложения с явным указанием часового пояса
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .job_queue(JobQueue(tzinfo=pytz.timezone('Europe/Moscow')))  # замените на ваш часовой пояс
+        .build()
+    )
     # Проверка подключений при запуске
     logger.info("Проверка подключений...")
     connections_ok = check_connections()
