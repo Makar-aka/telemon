@@ -38,17 +38,72 @@ proxies = {
     'https': f'http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_URL}'
 }
 
-# Инициализация клиента qBittorrent
-qbt_client = QBittorrentClient(
-    host=QBITTORRENT_URL,
-    username=QBITTORRENT_USERNAME,
-    password=QBITTORRENT_PASSWORD
-)
-try:
-    qbt_client.auth_log_in()
-    logger.info("Successfully connected to qBittorrent")
-except Exception as e:
-    logger.error(f"Failed to connect to qBittorrent: {str(e)}")
+# Функция проверки подключения к прокси
+def check_proxy_connection():
+    try:
+        # Проверяем подключение к прокси, запрашивая внешний IP
+        response = requests.get('https://api.ipify.org', proxies=proxies, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"Proxy connection successful. External IP: {response.text}")
+            return True
+        else:
+            logger.error(f"Failed to connect to proxy. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to connect to proxy: {str(e)}")
+        return False
+
+# Функция проверки подключения к RuTracker
+def check_rutracker_connection():
+    try:
+        # Проверяем подключение к RuTracker
+        response = requests.get('https://rutracker.org', proxies=proxies, timeout=10)
+        if response.status_code == 200:
+            logger.info("Connection to RuTracker successful")
+            return True
+        else:
+            logger.error(f"Failed to connect to RuTracker. Status code: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to connect to RuTracker: {str(e)}")
+        return False
+
+# Инициализация и проверка клиента qBittorrent
+def init_qbittorrent():
+    try:
+        qbt_client = QBittorrentClient(
+            host=QBITTORRENT_URL,
+            username=QBITTORRENT_USERNAME,
+            password=QBITTORRENT_PASSWORD
+        )
+        qbt_client.auth_log_in()
+        # Проверяем подключение, запрашивая версию qBittorrent
+        version = qbt_client.app.version
+        logger.info(f"Successfully connected to qBittorrent. Version: {version}")
+        return qbt_client
+    except Exception as e:
+        logger.error(f"Failed to connect to qBittorrent: {str(e)}")
+        return None
+
+# Проверка всех подключений при запуске
+def check_connections():
+    results = {
+        "proxy": check_proxy_connection(),
+        "rutracker": check_rutracker_connection(),
+        "qbittorrent": init_qbittorrent() is not None
+    }
+    
+    # Вывод итогового статуса подключений
+    logger.info("===== Connection Status =====")
+    for service, status in results.items():
+        status_text = "✅ CONNECTED" if status else "❌ FAILED"
+        logger.info(f"{service.upper()}: {status_text}")
+    logger.info("============================")
+    
+    return all(results.values())
+
+# Инициализация клиента qBittorrent (после проверки подключений)
+qbt_client = None
 
 # Инициализация базы данных
 def init_db():
@@ -111,7 +166,12 @@ def download_torrent(url):
 
 # Функция для добавления торрента в qBittorrent
 def add_torrent_to_qbittorrent(torrent_data):
+    global qbt_client
     try:
+        if qbt_client is None:
+            logger.error("qBittorrent client is not initialized")
+            return False
+            
         qbt_client.torrents_add(torrent_files=torrent_data, category="from telegram")
         logger.info("Torrent added to qBittorrent")
         return True
@@ -121,7 +181,12 @@ def add_torrent_to_qbittorrent(torrent_data):
 
 # Функция для очистки категории "from telegram" в qBittorrent
 def clear_telegram_category():
+    global qbt_client
     try:
+        if qbt_client is None:
+            logger.error("qBittorrent client is not initialized")
+            return False
+            
         torrents = qbt_client.torrents_info(category="from telegram")
         for torrent in torrents:
             qbt_client.torrents_delete(delete_files=False, hashes=torrent.hash)
@@ -132,27 +197,45 @@ def clear_telegram_category():
         return False
 
 # Команда /start
-async def start(update: Update, context: CallbackContext ):
+async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
         "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
         "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
         "/help - показать справку\n"
         "/list - показать отслеживаемые раздачи\n"
-        "/clear - очистить категорию 'from telegram' в qBittorrent"
+        "/clear - очистить категорию 'from telegram' в qBittorrent\n"
+        "/status - проверить статус подключений"
     )
 
+# Команда /status для проверки соединений
+async def check_status(update: Update, context: CallbackContext):
+    message = await update.message.reply_text("Проверяю подключения...")
+    
+    # Проверяем подключения
+    proxy_status = check_proxy_connection()
+    rutracker_status = check_rutracker_connection()
+    qbt_status = init_qbittorrent() is not None
+    
+    status_text = "Статус подключений:\n\n"
+    status_text += f"Прокси: {'✅ Подключено' if proxy_status else '❌ Ошибка подключения'}\n"
+    status_text += f"RuTracker: {'✅ Доступен' if rutracker_status else '❌ Недоступен'}\n"
+    status_text += f"qBittorrent: {'✅ Подключено' if qbt_status else '❌ Ошибка подключения'}\n"
+    
+    await message.edit_text(status_text)
+
 # Команда /help
-async def help_command(update: Update, context: CallbackContext ):
+async def help_command(update: Update, context: CallbackContext):
     await update.message.reply_text(
         "Список доступных команд:\n"
         "/start - начать работу с ботом\n"
         "/list - показать отслеживаемые раздачи\n"
-        "/clear - очистить категорию 'from telegram' в qBittorrent\n\n"
+        "/clear - очистить категорию 'from telegram' в qBittorrent\n"
+        "/status - проверить статус подключений\n\n"
         "Чтобы добавить раздачу для отслеживания, просто отправь мне ссылку на неё."
     )
 
 # Команда /list
-async def list_torrents(update: Update, context: CallbackContext ):
+async def list_torrents(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -171,7 +254,7 @@ async def list_torrents(update: Update, context: CallbackContext ):
     await update.message.reply_text(message)
 
 # Команда /clear
-async def clear_category(update: Update, context: CallbackContext ):
+async def clear_category(update: Update, context: CallbackContext):
     keyboard = [
         [
             InlineKeyboardButton("Да", callback_data="clear_yes"),
@@ -185,7 +268,7 @@ async def clear_category(update: Update, context: CallbackContext ):
     )
 
 # Обработчик кнопок
-async def button_callback(update: Update, context: CallbackContext ):
+async def button_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     
@@ -198,7 +281,7 @@ async def button_callback(update: Update, context: CallbackContext ):
         await query.edit_message_text(text="Операция отменена.")
 
 # Обработчик ссылок
-async def handle_url(update: Update, context: CallbackContext ):
+async def handle_url(update: Update, context: CallbackContext):
     url = update.message.text.strip()
     
     # Проверка, что это ссылка на rutracker
@@ -264,7 +347,7 @@ async def handle_url(update: Update, context: CallbackContext ):
         conn.close()
 
 # Функция для проверки обновлений раздач
-async def check_updates(context: CallbackContext ):
+async def check_updates(context: CallbackContext):
     logger.info("Checking for updates...")
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -322,20 +405,25 @@ async def check_updates(context: CallbackContext ):
     
     logger.info("Update check completed.")
 
-# Функция для запуска периодических задач
-def run_periodic_tasks():
-    logger.info("Starting periodic tasks...")
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    job_queue = application.job_queue
-    
-    # Проверка обновлений каждый CHECK_INTERVAL секунд
-    job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
-
 def main():
     # Инициализация БД
     init_db()
     
-    # Создание экземпляра Updater вместо Application
+    # Проверка подключений при запуске
+    logger.info("Checking connections...")
+    connections_ok = check_connections()
+    
+    if not connections_ok:
+        logger.error("Critical connection error. Bot cannot start properly!")
+        # Выводим предупреждение, но продолжаем запуск бота для возможности использования команды /status
+        # Если хотите остановить запуск бота при ошибке подключения, раскомментируйте следующую строку
+        # return
+    
+    # Инициализируем глобальный клиент qBittorrent
+    global qbt_client
+    qbt_client = init_qbittorrent()
+    
+    # Создание экземпляра Updater
     updater = Updater(token=TELEGRAM_TOKEN)
     dispatcher = updater.dispatcher
     
@@ -344,9 +432,10 @@ def main():
     dispatcher.add_handler(CommandHandler("help", help_command))
     dispatcher.add_handler(CommandHandler("list", list_torrents))
     dispatcher.add_handler(CommandHandler("clear", clear_category))
+    dispatcher.add_handler(CommandHandler("status", check_status))
     dispatcher.add_handler(CallbackQueryHandler(button_callback))
     
-    # Обработчик URL (используйте Filters вместо filters)
+    # Обработчик URL
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_url))
     
     # Настройка периодической проверки обновлений
