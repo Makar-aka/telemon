@@ -408,23 +408,6 @@ async def check_updates(context: ContextTypes.DEFAULT_TYPE):
     
     logger.info("Проверка обновлений завершена.")
 
-async def setup_periodic_updates(application):
-    """Настройка периодической проверки обновлений как часть инициализации приложения"""
-    # Создаем задачу для периодического запуска
-    job_queue = application.job_queue
-    
-    # В версии 22.0 мы используем tzinfo вместо timezone
-    timezone_obj = pytz.timezone(TIMEZONE)
-    
-    job_queue.run_repeating(
-        check_updates, 
-        interval=timedelta(seconds=CHECK_INTERVAL),
-        first=10  # Первая проверка через 10 секунд после запуска
-    )
-    
-    logger.info(f"Планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
-    logger.info(f"Часовой пояс: {TIMEZONE}")
-
 async def main():
     global qbt_client
     
@@ -465,13 +448,28 @@ async def main():
     # Обработчик URL
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     
-    # В версии 22.0 устанавливаем планировщик отдельно
-    await setup_periodic_updates(application)
+    # Настраиваем планировщик задач
+    job_queue = application.job_queue
+    job_queue.run_repeating(
+        check_updates, 
+        interval=timedelta(seconds=CHECK_INTERVAL),
+        first=10  # Первая проверка через 10 секунд после запуска
+    )
+    logger.info(f"Планировщик задач настроен с интервалом {CHECK_INTERVAL} сек.")
     
-    logger.info("Бот запущен")
-    
-    # Запуск бота с обновленными параметрами для версии 22.0
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Запуск бота
+    logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
+    await application.run_polling(stop_signals=None, close_loop=False)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Настройка цикла событий
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        # При нажатии Ctrl+C
+        logger.info("Бот остановлен пользователем")
+    finally:
+        loop.close()
+
