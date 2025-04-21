@@ -5,12 +5,14 @@ import logging
 import sqlite3
 import requests
 import asyncio
+import pytz
 from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from qbittorrentapi import Client as QBittorrentClient
+from datetime import tzinfo
 
 # Настройка логирования
 logging.basicConfig(
