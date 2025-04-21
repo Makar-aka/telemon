@@ -10,9 +10,8 @@ from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, JobQueue
 from qbittorrentapi import Client as QBittorrentClient
-from datetime import tzinfo
 
 # Настройка логирования
 logging.basicConfig(
@@ -33,6 +32,7 @@ QBITTORRENT_URL = os.getenv('QBITTORRENT_URL')
 QBITTORRENT_USERNAME = os.getenv('QBITTORRENT_USERNAME')
 QBITTORRENT_PASSWORD = os.getenv('QBITTORRENT_PASSWORD')
 CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '3600'))  # Интервал проверки в секундах (по умолчанию 1 час)
+TIMEZONE = os.getenv('TIMEZONE', 'Europe/Moscow')  # Часовой пояс, по умолчанию Москва
 
 # Настройка прокси для requests
 proxies = {
@@ -222,6 +222,7 @@ async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_text += f"Прокси: {'✅ Подключено' if proxy_status else '❌ Ошибка подключения'}\n"
     status_text += f"RuTracker: {'✅ Доступен' if rutracker_status else '❌ Недоступен'}\n"
     status_text += f"qBittorrent: {'✅ Подключено' if qbt_status else '❌ Ошибка подключения'}\n"
+    status_text += f"Текущий часовой пояс: {TIMEZONE}\n"
     
     await message.edit_text(status_text)
 
@@ -301,7 +302,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     user_id = update.message.from_user.id
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     
     # Сохраняем в БД
     conn = sqlite3.connect('telemon.db')
@@ -411,13 +412,6 @@ async def main():
     # Инициализация БД
     init_db()
     
-    # Создание экземпляра приложения с явным указанием часового пояса
-    application = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .job_queue(JobQueue(tzinfo=pytz.timezone('Europe/Moscow')))  # замените на ваш часовой пояс
-        .build()
-    )
     # Проверка подключений при запуске
     logger.info("Проверка подключений...")
     connections_ok = check_connections()
@@ -432,8 +426,19 @@ async def main():
     global qbt_client
     qbt_client = init_qbittorrent()
     
-    # Создание экземпляра приложения
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    # Создание экземпляра приложения с явным указанием часового пояса
+    try:
+        timezone = pytz.timezone(TIMEZONE)
+        application = (
+            Application.builder()
+            .token(TELEGRAM_TOKEN)
+            .job_queue(JobQueue(tzinfo=timezone))
+            .build()
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при установке часового пояса {TIMEZONE}: {str(e)}")
+        logger.info("Использую часовой пояс по умолчанию (UTC)")
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Добавление обработчиков команд
     application.add_handler(CommandHandler("start", start))
@@ -450,7 +455,7 @@ async def main():
     job_queue = application.job_queue
     job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
     
-    logger.info("Бот запущен")
+    logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
     
     # Запуск бота
     await application.run_polling()
