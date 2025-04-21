@@ -37,6 +37,12 @@ RUTRACKER_PASSWORD = os.getenv("RUTRACKER_PASSWORD")
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "3600"))  # Интервал проверки в секундах
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # Часовой пояс
 
+# Получение списка разрешенных пользователей из .env
+ALLOWED_USERS_STR = os.getenv("ALLOWED_USERS", "")
+ALLOWED_USERS = [int(user_id.strip()) for user_id in ALLOWED_USERS_STR.split(",") if user_id.strip()]
+logger.info(f"Загружен список разрешенных пользователей: {ALLOWED_USERS}")
+
+
 # Инициализация глобальных объектов
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 rutracker_session = requests.Session()
@@ -58,6 +64,10 @@ if PROXY_URL:
     }
 else:
     proxies = None
+
+# Функция для проверки доступа пользователя
+def is_user_allowed(user_id):
+    return len(ALLOWED_USERS) == 0 or user_id in ALLOWED_USERS
 
 
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С ПОДКЛЮЧЕНИЯМИ =====
@@ -465,6 +475,16 @@ def monitor_updates():
 # Обработчик команды /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
+    user_id = message.from_user.id
+    
+    if not is_user_allowed(user_id):
+        bot.send_message(
+            message.chat.id,
+            "У вас нет доступа к этому боту. Обратитесь к администратору."
+        )
+        logger.warning(f"Попытка несанкционированного доступа от пользователя {user_id}")
+        return
+    
     bot.send_message(
         message.chat.id,
         "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
@@ -474,6 +494,7 @@ def handle_start(message):
         "/clear - очистить категорию 'from telegram' в qBittorrent\n"
         "/status - проверить статус подключений"
     )
+
 
 
 # Обработчик команды /help
