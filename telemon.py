@@ -44,13 +44,13 @@ def check_proxy_connection():
         # Проверяем подключение к прокси, запрашивая внешний IP
         response = requests.get('https://api.ipify.org', proxies=proxies, timeout=10)
         if response.status_code == 200:
-            logger.info(f"Proxy connection successful. External IP: {response.text}")
+            logger.info(f"Подключение к прокси успешно. Внешний IP: {response.text}")
             return True
         else:
-            logger.error(f"Failed to connect to proxy. Status code: {response.status_code}")
+            logger.error(f"Не удалось подключиться к прокси. Код статуса: {response.status_code}")
             return False
     except Exception as e:
-        logger.error(f"Failed to connect to proxy: {str(e)}")
+        logger.error(f"Не удалось подключиться к прокси: {str(e)}")
         return False
 
 # Функция проверки подключения к RuTracker
@@ -59,13 +59,13 @@ def check_rutracker_connection():
         # Проверяем подключение к RuTracker
         response = requests.get('https://rutracker.org', proxies=proxies, timeout=10)
         if response.status_code == 200:
-            logger.info("Connection to RuTracker successful")
+            logger.info("Подключение к RuTracker успешно")
             return True
         else:
-            logger.error(f"Failed to connect to RuTracker. Status code: {response.status_code}")
+            logger.error(f"Не удалось подключиться к RuTracker. Код статуса: {response.status_code}")
             return False
     except Exception as e:
-        logger.error(f"Failed to connect to RuTracker: {str(e)}")
+        logger.error(f"Не удалось подключиться к RuTracker: {str(e)}")
         return False
 
 # Инициализация и проверка клиента qBittorrent
@@ -79,10 +79,10 @@ def init_qbittorrent():
         qbt_client.auth_log_in()
         # Проверяем подключение, запрашивая версию qBittorrent
         version = qbt_client.app.version
-        logger.info(f"Successfully connected to qBittorrent. Version: {version}")
+        logger.info(f"Успешное подключение к qBittorrent. Версия: {version}")
         return qbt_client
     except Exception as e:
-        logger.error(f"Failed to connect to qBittorrent: {str(e)}")
+        logger.error(f"Не удалось подключиться к qBittorrent: {str(e)}")
         return None
 
 # Проверка всех подключений при запуске
@@ -94,9 +94,9 @@ def check_connections():
     }
     
     # Вывод итогового статуса подключений
-    logger.info("===== Connection Status =====")
+    logger.info("===== Статус подключений =====")
     for service, status in results.items():
-        status_text = "✅ CONNECTED" if status else "❌ FAILED"
+        status_text = "✅ ПОДКЛЮЧЕНО" if status else "❌ ОШИБКА"
         logger.info(f"{service.upper()}: {status_text}")
     logger.info("============================")
     
@@ -121,7 +121,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-    logger.info("Database initialized")
+    logger.info("База данных инициализирована")
 
 # Функция для парсинга страницы раздачи
 def parse_rutracker_page(url):
@@ -151,7 +151,7 @@ def parse_rutracker_page(url):
             'dl_link': dl_link
         }
     except Exception as e:
-        logger.error(f"Error parsing page {url}: {str(e)}")
+        logger.error(f"Ошибка парсинга страницы {url}: {str(e)}")
         return None
 
 # Функция для скачивания торрент-файла
@@ -161,7 +161,7 @@ def download_torrent(url):
         response.raise_for_status()
         return response.content
     except Exception as e:
-        logger.error(f"Error downloading torrent {url}: {str(e)}")
+        logger.error(f"Ошибка скачивания торрента {url}: {str(e)}")
         return None
 
 # Функция для добавления торрента в qBittorrent
@@ -169,14 +169,14 @@ def add_torrent_to_qbittorrent(torrent_data):
     global qbt_client
     try:
         if qbt_client is None:
-            logger.error("qBittorrent client is not initialized")
+            logger.error("Клиент qBittorrent не инициализирован")
             return False
             
         qbt_client.torrents_add(torrent_files=torrent_data, category="from telegram")
-        logger.info("Torrent added to qBittorrent")
+        logger.info("Торрент добавлен в qBittorrent")
         return True
     except Exception as e:
-        logger.error(f"Error adding torrent to qBittorrent: {str(e)}")
+        logger.error(f"Ошибка добавления торрента в qBittorrent: {str(e)}")
         return False
 
 # Функция для очистки категории "from telegram" в qBittorrent
@@ -184,16 +184,16 @@ def clear_telegram_category():
     global qbt_client
     try:
         if qbt_client is None:
-            logger.error("qBittorrent client is not initialized")
+            logger.error("Клиент qBittorrent не инициализирован")
             return False
             
         torrents = qbt_client.torrents_info(category="from telegram")
         for torrent in torrents:
             qbt_client.torrents_delete(delete_files=False, hashes=torrent.hash)
-        logger.info("Category 'from telegram' cleared")
+        logger.info("Категория 'from telegram' очищена")
         return True
     except Exception as e:
-        logger.error(f"Error clearing category: {str(e)}")
+        logger.error(f"Ошибка очистки категории: {str(e)}")
         return False
 
 # Команда /start
@@ -341,14 +341,14 @@ async def handle_url(update: Update, context: CallbackContext):
                 f"Последнее обновление: {page_data['last_updated']}"
             )
     except sqlite3.Error as e:
-        logger.error(f"Database error: {str(e)}")
+        logger.error(f"Ошибка базы данных: {str(e)}")
         await processing_msg.edit_text(f"Произошла ошибка при сохранении в базу данных: {str(e)}")
     finally:
         conn.close()
 
 # Функция для проверки обновлений раздач
 async def check_updates(context: CallbackContext):
-    logger.info("Checking for updates...")
+    logger.info("Проверка обновлений...")
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
     cursor.execute('SELECT id, url, title, last_updated, added_by FROM torrents')
@@ -361,7 +361,7 @@ async def check_updates(context: CallbackContext):
             continue
         
         if page_data['last_updated'] != last_updated:
-            logger.info(f"Update detected for {title}")
+            logger.info(f"Обнаружено обновление для {title}")
             
             # Обновляем информацию в базе
             conn = sqlite3.connect('telemon.db')
@@ -403,18 +403,18 @@ async def check_updates(context: CallbackContext):
         # Небольшая задержка, чтобы не нагружать сервер
         time.sleep(5)
     
-    logger.info("Update check completed.")
+    logger.info("Проверка обновлений завершена.")
 
 def main():
     # Инициализация БД
     init_db()
     
     # Проверка подключений при запуске
-    logger.info("Checking connections...")
+    logger.info("Проверка подключений...")
     connections_ok = check_connections()
     
     if not connections_ok:
-        logger.error("Critical connection error. Bot cannot start properly!")
+        logger.error("Критическая ошибка подключения. Бот не может нормально запуститься!")
         # Выводим предупреждение, но продолжаем запуск бота для возможности использования команды /status
         # Если хотите остановить запуск бота при ошибке подключения, раскомментируйте следующую строку
         # return
@@ -442,7 +442,7 @@ def main():
     job_queue = updater.job_queue
     job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
     
-    logger.info("Bot started")
+    logger.info("Бот запущен")
     
     # Запуск бота
     updater.start_polling()
