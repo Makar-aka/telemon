@@ -5,11 +5,13 @@ import sqlite3
 import requests
 import asyncio
 import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import threading
+import time
+from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -25,7 +27,7 @@ from qbittorrentapi import Client as QBittorrentClient
 scheduler = None
 qbt_client = None
 rutracker_session = requests.Session()  # Сессия для авторизации на RuTracker
-bot = None  # Глобальная переменная для хранения экземпляра бота
+bot_instance = None  # Глобальная переменная для хранения экземпляра бота
 
 # Настройка логирования
 logging.basicConfig(
@@ -62,15 +64,13 @@ def login_to_rutracker():
     payload = {
         "login_username": RUTRACKER_USERNAME,
         "login_password": RUTRACKER_PASSWORD,
-        "login": "Вход",  # Это значение кнопки входа
+        "login": "Вход",
     }
 
     try:
-        # Выполняем POST-запрос для авторизации
         response = rutracker_session.post(login_url, data=payload, proxies=proxies, timeout=10)
         response.raise_for_status()
 
-        # Проверяем, успешен ли вход (например, по наличию куки)
         if "bb_session" in rutracker_session.cookies:
             logger.info("Успешная авторизация на RuTracker")
             return True
@@ -391,15 +391,27 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 
-# Функция для проверки обновлений раздач
-async def check_updates_scheduler():
-    """Версия функции check_updates для запуска из планировщика"""
-    global bot
-    if bot is None:
-        logger.error("Бот не инициализирован")
+# Функция для отправки сообщений из фонового потока
+def send_telegram_message(chat_id, text):
+    # Используем bot_instance, который инициализируется в main()
+    if bot_instance is None:
+        logger.error("Бот не инициализирован для отправки сообщений")
         return
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(bot_instance.send_message(chat_id=chat_id, text=text))
+    finally:
+        loop.close()
 
-    logger.info("Проверка обновлений...")
+
+# Функция для проверки обновлений раздач (для фонового потока)
+def check_updates_background():
+    """Версия функции check_updates для запуска из планировщика в фоновом режиме"""
+    logger.info("Проверка обновлений (фоновый режим)...")
+    
+    # Подключение к базе данных
     conn = sqlite3.connect("telemon.db")
     cursor = conn.cursor()
     cursor.execute("SELECT id, url, title, last_updated, added_by FROM torrents")
@@ -413,6 +425,8 @@ async def check_updates_scheduler():
 
         if page_data["last_updated"] != last_updated:
             logger.info(f"Обнаружено обновление для {title}")
+            
+            # Обновляем информацию в базе
             conn = sqlite3.connect("telemon.db")
             cursor = conn.cursor()
             cursor.execute(
@@ -422,100 +436,41 @@ async def check_updates_scheduler():
             conn.commit()
             conn.close()
 
+            # Скачиваем и добавляем торрент
             if page_data["dl_link"]:
                 torrent_data = download_torrent(page_data["dl_link"])
                 if torrent_data and add_torrent_to_qbittorrent(torrent_data):
-                    try:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=f"🔄 Обновление раздачи!\n\n"
-                            f"Название: {page_data['title']}\n"
-                            f"Новое время обновления: {page_data['last_updated']}\n"
-                            f"Торрент добавлен в qBittorrent.",
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки сообщения: {e}")
-                else:
-                    try:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=f"🔄 Обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
-                            f"Название: {page_data['title']}\n"
-                            f"Новое время обновления: {page_data['last_updated']}",
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки сообщения: {e}")
-            else:
-                try:
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=f"🔄 Обновление раздачи, но ссылка на торрент не найдена!\n\n"
-                        f"Название: {page_data['title']}\n"
-                        f"Новое время обновления: {page_data['last_updated']}",
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки сообщения: {e}")
-        await asyncio.sleep(5)
-
-    logger.info("Проверка обновлений завершена.")
-
-
-# Версия для обработчика команд Telegram
-async def check_updates(context):
-    logger.info("Проверка обновлений через команду...")
-    conn = sqlite3.connect("telemon.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, url, title, last_updated, added_by FROM torrents")
-    torrents = cursor.fetchall()
-    conn.close()
-
-    for torrent_id, url, title, last_updated, user_id in torrents:
-        page_data = parse_rutracker_page(url)
-        if not page_data:
-            continue
-
-        if page_data["last_updated"] != last_updated:
-            logger.info(f"Обнаружено обновление для {title}")
-            conn = sqlite3.connect("telemon.db")
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE torrents SET last_updated = ?, title = ? WHERE id = ?",
-                (page_data["last_updated"], page_data["title"], torrent_id),
-            )
-            conn.commit()
-            conn.close()
-
-            if page_data["dl_link"]:
-                torrent_data = download_torrent(page_data["dl_link"])
-                if torrent_data and add_torrent_to_qbittorrent(torrent_data):
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🔄 Обновление раздачи!\n\n"
+                    send_telegram_message(
+                        user_id,
+                        f"🔄 Обновление раздачи!\n\n"
                         f"Название: {page_data['title']}\n"
                         f"Новое время обновления: {page_data['last_updated']}\n"
-                        f"Торрент добавлен в qBittorrent.",
+                        f"Торрент добавлен в qBittorrent."
                     )
                 else:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🔄 Обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
+                    send_telegram_message(
+                        user_id,
+                        f"🔄 Обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
                         f"Название: {page_data['title']}\n"
-                        f"Новое время обновления: {page_data['last_updated']}",
+                        f"Новое время обновления: {page_data['last_updated']}"
                     )
             else:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🔄 Обновление раздачи, но ссылка на торрент не найдена!\n\n"
+                send_telegram_message(
+                    user_id,
+                    f"🔄 Обновление раздачи, но ссылка на торрент не найдена!\n\n"
                     f"Название: {page_data['title']}\n"
-                    f"Новое время обновления: {page_data['last_updated']}",
+                    f"Новое время обновления: {page_data['last_updated']}"
                 )
-        await asyncio.sleep(5)
+        
+        # Небольшая задержка между проверками
+        time.sleep(5)
 
     logger.info("Проверка обновлений завершена.")
 
 
+# Основная функция для запуска бота
 async def main():
-    global qbt_client, scheduler, bot
+    global qbt_client, scheduler, bot_instance
 
     # Инициализация БД
     init_db()
@@ -533,7 +488,7 @@ async def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Сохраняем бота глобально для использования в планировщике
-    bot = application.bot
+    bot_instance = Bot(token=TELEGRAM_TOKEN)
 
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start))
@@ -544,30 +499,20 @@ async def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     
-    # Создаем и запускаем планировщик отдельно от приложения
-    timezone_obj = pytz.timezone(TIMEZONE)
-    scheduler = AsyncIOScheduler(timezone=timezone_obj)
-    
-    # Добавляем задачу проверки обновлений с заданным интервалом
+    # Запуск фонового планировщика в отдельном потоке
+    scheduler = BackgroundScheduler(timezone=pytz.timezone(TIMEZONE))
     scheduler.add_job(
-        check_updates_scheduler,  # Используем отдельную функцию для планировщика
+        check_updates_background,
         'interval',
         seconds=CHECK_INTERVAL,
-        next_run_time=datetime.now(timezone_obj)
+        next_run_time=datetime.now(pytz.timezone(TIMEZONE))
     )
-    
-    # Запускаем планировщик
     scheduler.start()
-    logger.info(f"Планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
+    logger.info(f"Фоновый планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
     
-    # Запуск бота с stop_signals=None для предотвращения конфликтов с планировщиком
+    # Запуск бота
     logger.info("Бот запущен.")
-    try:
-        await application.run_polling(stop_signals=None)
-    finally:
-        # Останавливаем планировщик при завершении работы
-        if scheduler and scheduler.running:
-            scheduler.shutdown()
+    await application.run_polling()
 
 
 if __name__ == "__main__":
