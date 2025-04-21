@@ -429,12 +429,10 @@ async def main():
     # Создание экземпляра приложения с явным указанием часового пояса
     try:
         timezone = pytz.timezone(TIMEZONE)
-        application = (
-            Application.builder()
-            .token(TELEGRAM_TOKEN)
-            .job_queue(JobQueue(tzinfo=timezone))
-            .build()
-        )
+        # Используем более простой способ инициализации приложения с часовым поясом
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        # Установим часовой пояс для планировщика после создания приложения
+        application.job_queue.scheduler.timezone = timezone
     except Exception as e:
         logger.error(f"Ошибка при установке часового пояса {TIMEZONE}: {str(e)}")
         logger.info("Использую часовой пояс по умолчанию (UTC)")
