@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, JobQueue
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from qbittorrentapi import Client as QBittorrentClient
 
 # Настройка логирования
@@ -426,17 +426,25 @@ async def main():
     global qbt_client
     qbt_client = init_qbittorrent()
     
-    # Создание экземпляра приложения с явным указанием часового пояса
+    # Создаем экземпляр приложения без настройки часового пояса первоначально
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Настраиваем часовой пояс для планировщика непосредственно через API APScheduler
     try:
-        timezone = pytz.timezone(TIMEZONE)
-        # Используем более простой способ инициализации приложения с часовым поясом
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-        # Установим часовой пояс для планировщика после создания приложения
-        application.job_queue.scheduler.timezone = timezone
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        import pytz
+        
+        # Получаем планировщик из application
+        scheduler = application.job_queue.scheduler
+        
+        # Настройка timezone через API планировщика
+        timezone_obj = pytz.timezone(TIMEZONE)
+        scheduler._timezone = timezone_obj
+        
+        logger.info(f"Часовой пояс {TIMEZONE} успешно установлен")
     except Exception as e:
         logger.error(f"Ошибка при установке часового пояса {TIMEZONE}: {str(e)}")
         logger.info("Использую часовой пояс по умолчанию (UTC)")
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Добавление обработчиков команд
     application.add_handler(CommandHandler("start", start))
