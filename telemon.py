@@ -457,19 +457,16 @@ async def main():
     )
     logger.info(f"Планировщик задач настроен с интервалом {CHECK_INTERVAL} сек.")
     
-    # Запуск бота
+    # Запуск бота (не указываем специфичные параметры для работы с циклом событий)
     logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
-    await application.run_polling(stop_signals=None, close_loop=False)
+    await application.run_polling()
 
 if __name__ == "__main__":
-    # Настройка цикла событий
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(main())
+        # Используем простой способ запуска без явного управления циклом событий
+        asyncio.run(main())
     except KeyboardInterrupt:
         # При нажатии Ctrl+C
         logger.info("Бот остановлен пользователем")
-    finally:
-        loop.close()
+
 
