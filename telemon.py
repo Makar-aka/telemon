@@ -4,12 +4,12 @@ import time
 import logging
 import sqlite3
 import requests
-import schedule
+import asyncio
 from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from qbittorrentapi import Client as QBittorrentClient
 
 # Настройка логирования
@@ -197,7 +197,7 @@ def clear_telegram_category():
         return False
 
 # Команда /start
-async def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
         "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
@@ -208,7 +208,7 @@ async def start(update: Update, context: CallbackContext):
     )
 
 # Команда /status для проверки соединений
-async def check_status(update: Update, context: CallbackContext):
+async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await update.message.reply_text("Проверяю подключения...")
     
     # Проверяем подключения
@@ -224,7 +224,7 @@ async def check_status(update: Update, context: CallbackContext):
     await message.edit_text(status_text)
 
 # Команда /help
-async def help_command(update: Update, context: CallbackContext):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Список доступных команд:\n"
         "/start - начать работу с ботом\n"
@@ -235,7 +235,7 @@ async def help_command(update: Update, context: CallbackContext):
     )
 
 # Команда /list
-async def list_torrents(update: Update, context: CallbackContext):
+async def list_torrents(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -254,7 +254,7 @@ async def list_torrents(update: Update, context: CallbackContext):
     await update.message.reply_text(message)
 
 # Команда /clear
-async def clear_category(update: Update, context: CallbackContext):
+async def clear_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("Да", callback_data="clear_yes"),
@@ -268,7 +268,7 @@ async def clear_category(update: Update, context: CallbackContext):
     )
 
 # Обработчик кнопок
-async def button_callback(update: Update, context: CallbackContext):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -281,7 +281,7 @@ async def button_callback(update: Update, context: CallbackContext):
         await query.edit_message_text(text="Операция отменена.")
 
 # Обработчик ссылок
-async def handle_url(update: Update, context: CallbackContext):
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     
     # Проверка, что это ссылка на rutracker
@@ -347,7 +347,7 @@ async def handle_url(update: Update, context: CallbackContext):
         conn.close()
 
 # Функция для проверки обновлений раздач
-async def check_updates(context: CallbackContext):
+async def check_updates(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Проверка обновлений...")
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -401,11 +401,11 @@ async def check_updates(context: CallbackContext):
                 )
         
         # Небольшая задержка, чтобы не нагружать сервер
-        time.sleep(5)
+        await asyncio.sleep(5)
     
     logger.info("Проверка обновлений завершена.")
 
-def main():
+async def main():
     # Инициализация БД
     init_db()
     
@@ -423,31 +423,28 @@ def main():
     global qbt_client
     qbt_client = init_qbittorrent()
     
-    # Создание экземпляра Updater
-    updater = Updater(token=TELEGRAM_TOKEN)
-    dispatcher = updater.dispatcher
+    # Создание экземпляра приложения
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Добавление обработчиков команд
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CommandHandler("list", list_torrents))
-    dispatcher.add_handler(CommandHandler("clear", clear_category))
-    dispatcher.add_handler(CommandHandler("status", check_status))
-    dispatcher.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("list", list_torrents))
+    application.add_handler(CommandHandler("clear", clear_category))
+    application.add_handler(CommandHandler("status", check_status))
+    application.add_handler(CallbackQueryHandler(button_callback))
     
     # Обработчик URL
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_url))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     
     # Настройка периодической проверки обновлений
-    job_queue = updater.job_queue
+    job_queue = application.job_queue
     job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
     
     logger.info("Бот запущен")
     
     # Запуск бота
-    updater.start_polling()
-    updater.idle()
-
+    await application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
