@@ -5,6 +5,7 @@ import sqlite3
 import requests
 import asyncio
 import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -19,6 +20,8 @@ from telegram.ext import (
 )
 
 from qbittorrentapi import Client as QBittorrentClient
+
+scheduler = None
 
 # Настройка логирования
 logging.basicConfig(
@@ -444,7 +447,7 @@ async def check_updates(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def main():
-    global qbt_client
+    global qbt_client, scheduler
 
     # Инициализация БД
     init_db()
@@ -458,6 +461,18 @@ async def main():
     # Инициализация qBittorrent
     qbt_client = init_qbittorrent()
 
+    # Создаем собственный планировщик APScheduler
+    timezone_obj = pytz.timezone(TIMEZONE)
+    scheduler = AsyncIOScheduler(timezone=timezone_obj)
+    scheduler.add_job(
+        lambda: asyncio.create_task(check_updates(None)),
+        'interval',
+        seconds=CHECK_INTERVAL,
+        next_run_time=datetime.now(timezone_obj)
+    )
+    scheduler.start()
+    logger.info(f"Планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
+
     # Создание приложения
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -469,12 +484,15 @@ async def main():
     application.add_handler(CommandHandler("status", check_status))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
-    application.job_queue.run_repeating(check_updates, interval=timedelta(seconds=CHECK_INTERVAL), first=10)
-
+    
     # Запуск бота
     logger.info("Бот запущен.")
-    await application.run_polling()
-
+    try:
+        await application.run_polling()
+    finally:
+        # Останавливаем планировщик при завершении работы
+        if scheduler and scheduler.running:
+            scheduler.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
