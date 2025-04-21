@@ -7,7 +7,7 @@ import requests
 import threading
 import time
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from bs4 import BeautifulSoup
 import telebot
@@ -43,6 +43,13 @@ rutracker_session = requests.Session()
 qbt_client = None
 stop_event = threading.Event()  # Событие для остановки фонового потока
 
+# ПЕРЕПОДКЛЮЧЕНИЕ
+RECONNECT_INTERVAL = 300  # 5 минут в секундах
+last_connection_attempt = {
+    "rutracker": datetime.min,
+    "qbittorrent": datetime.min
+}
+
 # Настройка прокси для requests
 if PROXY_URL:
     proxies = {
@@ -54,6 +61,14 @@ else:
 
 
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С ПОДКЛЮЧЕНИЯМИ =====
+
+# Функция для проверки необходимости повторного подключения
+def should_reconnect(service):
+    now = datetime.now()
+    if (now - last_connection_attempt[service]).total_seconds() >= RECONNECT_INTERVAL:
+        last_connection_attempt[service] = now
+        return True
+    return False
 
 # Функция для авторизации на RuTracker
 def login_to_rutracker():
@@ -150,6 +165,51 @@ def check_connections():
     return results
 
 
+# Функция для периодической проверки подключений и переподключения
+def reconnect_services():
+    global qbt_client
+    
+    while not stop_event.is_set():
+        reconnected = False
+        
+        # Проверяем подключение к RuTracker и переподключаемся при необходимости
+        if should_reconnect("rutracker"):
+            logger.info("Попытка переподключения к RuTracker...")
+            if login_to_rutracker():
+                logger.info("Успешное переподключение к RuTracker")
+                reconnected = True
+            else:
+                logger.warning("Не удалось переподключиться к RuTracker, следующая попытка через 5 минут")
+        
+        # Проверяем подключение к qBittorrent и переподключаемся при необходимости
+        if should_reconnect("qbittorrent") and qbt_client is None:
+            logger.info("Попытка переподключения к qBittorrent...")
+            if init_qbittorrent():
+                logger.info("Успешное переподключение к qBittorrent")
+                reconnected = True
+            else:
+                logger.warning("Не удалось переподключиться к qBittorrent, следующая попытка через 5 минут")
+        
+        # Если были успешные переподключения, обновляем статус
+        if reconnected:
+            results = {
+                "proxy": check_proxy_connection(),
+                "rutracker": "bb_session" in rutracker_session.cookies,
+                "qbittorrent": qbt_client is not None,
+            }
+            logger.info("===== Обновленный статус подключений =====")
+            for service, status in results.items():
+                status_text = "✅ ПОДКЛЮЧЕНО" if status else "❌ ОШИБКА"
+                logger.info(f"{service.upper()}: {status_text}")
+            logger.info("===================================")
+        
+        # Ждем следующую проверку или сигнал остановки
+        for _ in range(60):  # Проверка каждую минуту на случай остановки потока
+            if stop_event.is_set():
+                break
+            time.sleep(1)
+
+
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ =====
 
 # Инициализация базы данных
@@ -186,6 +246,13 @@ def get_topic_id(url):
 # Функция для парсинга страницы раздачи
 def parse_rutracker_page(url):
     try:
+        # Если нет активной сессии, пытаемся переподключиться
+        if "bb_session" not in rutracker_session.cookies:
+            logger.warning("Сессия RuTracker не активна, попытка переподключения...")
+            if not login_to_rutracker():
+                logger.error("Не удалось переподключиться к RuTracker")
+                return None
+        
         response = rutracker_session.get(url, proxies=proxies, timeout=20)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
@@ -215,6 +282,13 @@ def parse_rutracker_page(url):
 # Функция для скачивания торрент-файла
 def download_torrent(url):
     try:
+        # Если нет активной сессии, пытаемся переподключиться
+        if "bb_session" not in rutracker_session.cookies:
+            logger.warning("Сессия RuTracker не активна, попытка переподключения...")
+            if not login_to_rutracker():
+                logger.error("Не удалось переподключиться к RuTracker")
+                return None
+                
         logger.info(f"Скачивание торрента: {url}")
         response = rutracker_session.get(url, proxies=proxies, timeout=30)
         response.raise_for_status()
@@ -253,25 +327,32 @@ def download_torrent(url):
 
 # Функция для добавления торрента в qBittorrent
 def add_torrent_to_qbittorrent(torrent_data):
+    global qbt_client
     try:
         if qbt_client is None:
-            logger.error("Клиент qBittorrent не инициализирован")
-            return False
+            logger.error("Клиент qBittorrent не инициализирован, попытка переподключения...")
+            if not init_qbittorrent():
+                logger.error("Не удалось переподключиться к qBittorrent")
+                return False
 
         qbt_client.torrents_add(torrent_files=torrent_data, category="from telegram")
         logger.info("Торрент добавлен в qBittorrent")
         return True
     except Exception as e:
         logger.error(f"Ошибка добавления торрента в qBittorrent: {str(e)}")
+        qbt_client = None  # Сбрасываем клиент, чтобы при следующем обращении была попытка переподключения
         return False
 
 
 # Функция для очистки категории "from telegram" в qBittorrent
 def clear_telegram_category():
+    global qbt_client
     try:
         if qbt_client is None:
-            logger.error("Клиент qBittorrent не инициализирован")
-            return False
+            logger.error("Клиент qBittorrent не инициализирован, попытка переподключения...")
+            if not init_qbittorrent():
+                logger.error("Не удалось переподключиться к qBittorrent")
+                return False
             
         torrents = qbt_client.torrents_info(category="from telegram")
         for torrent in torrents:
@@ -280,6 +361,7 @@ def clear_telegram_category():
         return True
     except Exception as e:
         logger.error(f"Ошибка очистки категории: {str(e)}")
+        qbt_client = None  # Сбрасываем клиент, чтобы при следующем обращении была попытка переподключения
         return False
 
 
@@ -287,6 +369,13 @@ def clear_telegram_category():
 
 # Функция для проверки обновлений раздач
 def check_updates():
+    # Проверка подключения к RuTracker перед выполнением
+    if "bb_session" not in rutracker_session.cookies:
+        logger.warning("Нет подключения к RuTracker, пробуем переподключиться перед проверкой...")
+        if not login_to_rutracker():
+            logger.error("Не удалось подключиться к RuTracker, проверка обновлений пропущена")
+            return
+        
     logger.info("Проверка обновлений...")
     
     conn = sqlite3.connect("telemon.db")
@@ -574,14 +663,23 @@ def main():
     # Инициализация базы данных
     init_db()
     
-    # Проверка подключений
+    # Проверка подключений - позволяем продолжить даже при неудаче
     logger.info("Проверка подключений...")
-    check_connections()
+    results = check_connections()
+    
+    if not all(results.values()):
+        logger.warning("Не все подключения успешны, но бот будет запущен. "
+                      "Будут производиться повторные попытки подключения каждые 5 минут.")
     
     # Запуск фонового потока для мониторинга обновлений
-    monitor_thread = threading.Thread(target=monitor_updates)
+    monitor_thread = threading.Thread(target=monitor_updates, name="MonitorThread")
     monitor_thread.daemon = True
     monitor_thread.start()
+    
+    # Запуск фонового потока для переподключений
+    reconnect_thread = threading.Thread(target=reconnect_services, name="ReconnectThread")
+    reconnect_thread.daemon = True
+    reconnect_thread.start()
     
     # Запуск бота в бесконечном цикле
     logger.info("Бот запущен. Нажмите Ctrl+C для остановки.")
@@ -590,15 +688,17 @@ def main():
         # Запуск бота
         bot.polling(none_stop=True, interval=0)
     except KeyboardInterrupt:
-        stop_event.set()  # Сигнал для остановки фонового потока
+        stop_event.set()  # Сигнал для остановки фоновых потоков
         logger.info("Остановка бота...")
     except Exception as e:
         logger.error(f"Ошибка работы бота: {e}")
         stop_event.set()
     
-    # Дожидаемся завершения фонового потока
-    if monitor_thread.is_alive():
-        monitor_thread.join(timeout=5)
+    # Дожидаемся завершения фоновых потоков
+    threads = [monitor_thread, reconnect_thread]
+    for thread in threads:
+        if thread.is_alive():
+            thread.join(timeout=5)
 
 
 if __name__ == "__main__":
