@@ -132,7 +132,7 @@ def clear_telegram_category():
         return False
 
 # Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: CallbackContext ):
     await update.message.reply_text(
         "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
         "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
@@ -142,7 +142,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Команда /help
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: CallbackContext ):
     await update.message.reply_text(
         "Список доступных команд:\n"
         "/start - начать работу с ботом\n"
@@ -152,7 +152,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Команда /list
-async def list_torrents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_torrents(update: Update, context: CallbackContext ):
     user_id = update.message.from_user.id
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -171,7 +171,7 @@ async def list_torrents(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 # Команда /clear
-async def clear_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clear_category(update: Update, context: CallbackContext ):
     keyboard = [
         [
             InlineKeyboardButton("Да", callback_data="clear_yes"),
@@ -185,7 +185,7 @@ async def clear_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Обработчик кнопок
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update: Update, context: CallbackContext ):
     query = update.callback_query
     await query.answer()
     
@@ -198,7 +198,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="Операция отменена.")
 
 # Обработчик ссылок
-async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_url(update: Update, context: CallbackContext ):
     url = update.message.text.strip()
     
     # Проверка, что это ссылка на rutracker
@@ -264,7 +264,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 # Функция для проверки обновлений раздач
-async def check_updates(context: ContextTypes.DEFAULT_TYPE):
+async def check_updates(context: CallbackContext ):
     logger.info("Checking for updates...")
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
