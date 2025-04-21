@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from qbittorrentapi import Client as QBittorrentClient
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Настройка логирования
 logging.basicConfig(
@@ -39,6 +40,11 @@ proxies = {
     'http': f'http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_URL}',
     'https': f'http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_URL}'
 }
+
+# Инициализация глобальных переменных
+qbt_client = None
+application = None
+custom_scheduler = None
 
 # Функция проверки подключения к прокси
 def check_proxy_connection():
@@ -103,9 +109,6 @@ def check_connections():
     logger.info("============================")
     
     return all(results.values())
-
-# Инициализация клиента qBittorrent (после проверки подключений)
-qbt_client = None
 
 # Инициализация базы данных
 def init_db():
@@ -350,7 +353,9 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 # Функция для проверки обновлений раздач
-async def check_updates(context: ContextTypes.DEFAULT_TYPE):
+async def check_updates():
+    global application
+    
     logger.info("Проверка обновлений...")
     conn = sqlite3.connect('telemon.db')
     cursor = conn.cursor()
@@ -381,7 +386,7 @@ async def check_updates(context: ContextTypes.DEFAULT_TYPE):
                 torrent_data = download_torrent(page_data['dl_link'])
                 if torrent_data and add_torrent_to_qbittorrent(torrent_data):
                     # Отправляем уведомление пользователю
-                    await context.bot.send_message(
+                    await application.bot.send_message(
                         chat_id=user_id,
                         text=f"🔄 Обнаружено обновление раздачи!\n\n"
                              f"Название: {page_data['title']}\n"
@@ -389,14 +394,14 @@ async def check_updates(context: ContextTypes.DEFAULT_TYPE):
                              f"Торрент добавлен в qBittorrent."
                     )
                 else:
-                    await context.bot.send_message(
+                    await application.bot.send_message(
                         chat_id=user_id,
                         text=f"🔄 Обнаружено обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
                              f"Название: {page_data['title']}\n"
                              f"Новое время обновления: {page_data['last_updated']}"
                     )
             else:
-                await context.bot.send_message(
+                await application.bot.send_message(
                     chat_id=user_id,
                     text=f"🔄 Обнаружено обновление раздачи, но не найдена ссылка на торрент!\n\n"
                          f"Название: {page_data['title']}\n"
@@ -409,6 +414,8 @@ async def check_updates(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Проверка обновлений завершена.")
 
 async def main():
+    global qbt_client, application, custom_scheduler
+    
     # Инициализация БД
     init_db()
     
@@ -423,28 +430,23 @@ async def main():
         # return
     
     # Инициализируем глобальный клиент qBittorrent
-    global qbt_client
     qbt_client = init_qbittorrent()
     
-    # Создаем экземпляр приложения без настройки часового пояса первоначально
+    # Устанавливаем явно часовой пояс для библиотеки apscheduler
+    os.environ['TZ'] = TIMEZONE
+    time.tzset()  # Применяем часовой пояс для системы
+    
+    # Создаем экземпляр приложения
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Настраиваем часовой пояс для планировщика непосредственно через API APScheduler
+    # Создаем собственный планировщик APScheduler
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        import pytz
-        
-        # Получаем планировщик из application
-        scheduler = application.job_queue.scheduler
-        
-        # Настройка timezone через API планировщика
-        timezone_obj = pytz.timezone(TIMEZONE)
-        scheduler._timezone = timezone_obj
-        
-        logger.info(f"Часовой пояс {TIMEZONE} успешно установлен")
+        custom_scheduler = AsyncIOScheduler(timezone=pytz.timezone(TIMEZONE))
+        custom_scheduler.add_job(check_updates, 'interval', seconds=CHECK_INTERVAL, next_run_time=datetime.now(pytz.timezone(TIMEZONE)))
+        custom_scheduler.start()
+        logger.info(f"Планировщик задач запущен с часовым поясом {TIMEZONE}")
     except Exception as e:
-        logger.error(f"Ошибка при установке часового пояса {TIMEZONE}: {str(e)}")
-        logger.info("Использую часовой пояс по умолчанию (UTC)")
+        logger.error(f"Ошибка при настройке планировщика: {str(e)}")
     
     # Добавление обработчиков команд
     application.add_handler(CommandHandler("start", start))
@@ -456,10 +458,6 @@ async def main():
     
     # Обработчик URL
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
-    
-    # Настройка периодической проверки обновлений
-    job_queue = application.job_queue
-    job_queue.run_repeating(check_updates, interval=CHECK_INTERVAL, first=10)
     
     logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
     
