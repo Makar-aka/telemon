@@ -6,12 +6,11 @@ import requests
 import asyncio
 import pytz
 import threading
-import time
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -20,6 +19,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from telegram.error import TelegramError
 
 from qbittorrentapi import Client as QBittorrentClient
 
@@ -27,7 +27,7 @@ from qbittorrentapi import Client as QBittorrentClient
 scheduler = None
 qbt_client = None
 rutracker_session = requests.Session()  # Сессия для авторизации на RuTracker
-bot_instance = None  # Глобальная переменная для хранения экземпляра бота
+application = None  # Глобальная переменная для хранения экземпляра приложения
 
 # Настройка логирования
 logging.basicConfig(
@@ -391,19 +391,22 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
 
-# Функция для отправки сообщений из фонового потока
+# Функция для отправки сообщений через HTTP API Telegram
 def send_telegram_message(chat_id, text):
-    # Используем bot_instance, который инициализируется в main()
-    if bot_instance is None:
-        logger.error("Бот не инициализирован для отправки сообщений")
-        return
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(bot_instance.send_message(chat_id=chat_id, text=text))
-    finally:
-        loop.close()
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML"
+        }
+        response = requests.post(url, json=data, proxies=proxies)
+        response.raise_for_status()
+        logger.info(f"Сообщение отправлено пользователю {chat_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения пользователю {chat_id}: {str(e)}")
+        return False
 
 
 # Функция для проверки обновлений раздач (для фонового потока)
@@ -442,7 +445,7 @@ def check_updates_background():
                 if torrent_data and add_torrent_to_qbittorrent(torrent_data):
                     send_telegram_message(
                         user_id,
-                        f"🔄 Обновление раздачи!\n\n"
+                        f"🔄 <b>Обновление раздачи!</b>\n\n"
                         f"Название: {page_data['title']}\n"
                         f"Новое время обновления: {page_data['last_updated']}\n"
                         f"Торрент добавлен в qBittorrent."
@@ -450,14 +453,14 @@ def check_updates_background():
                 else:
                     send_telegram_message(
                         user_id,
-                        f"🔄 Обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
+                        f"🔄 <b>Обновление раздачи</b>, но не удалось добавить торрент в qBittorrent!\n\n"
                         f"Название: {page_data['title']}\n"
                         f"Новое время обновления: {page_data['last_updated']}"
                     )
             else:
                 send_telegram_message(
                     user_id,
-                    f"🔄 Обновление раздачи, но ссылка на торрент не найдена!\n\n"
+                    f"🔄 <b>Обновление раздачи</b>, но ссылка на торрент не найдена!\n\n"
                     f"Название: {page_data['title']}\n"
                     f"Новое время обновления: {page_data['last_updated']}"
                 )
@@ -468,9 +471,23 @@ def check_updates_background():
     logger.info("Проверка обновлений завершена.")
 
 
+# Запуск фонового планировщика в отдельной функции
+def start_scheduler():
+    global scheduler
+    scheduler = BackgroundScheduler(timezone=pytz.timezone(TIMEZONE))
+    scheduler.add_job(
+        check_updates_background,
+        'interval',
+        seconds=CHECK_INTERVAL,
+        next_run_time=datetime.now(pytz.timezone(TIMEZONE))
+    )
+    scheduler.start()
+    logger.info(f"Фоновый планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
+
+
 # Основная функция для запуска бота
 async def main():
-    global qbt_client, scheduler, bot_instance
+    global qbt_client, application
 
     # Инициализация БД
     init_db()
@@ -484,11 +501,11 @@ async def main():
     # Инициализация qBittorrent
     qbt_client = init_qbittorrent()
 
+    # Запуск фонового планировщика в отдельном потоке
+    threading.Thread(target=start_scheduler, daemon=True).start()
+
     # Создание приложения
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Сохраняем бота глобально для использования в планировщике
-    bot_instance = Bot(token=TELEGRAM_TOKEN)
 
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start))
@@ -498,17 +515,6 @@ async def main():
     application.add_handler(CommandHandler("status", check_status))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
-    
-    # Запуск фонового планировщика в отдельном потоке
-    scheduler = BackgroundScheduler(timezone=pytz.timezone(TIMEZONE))
-    scheduler.add_job(
-        check_updates_background,
-        'interval',
-        seconds=CHECK_INTERVAL,
-        next_run_time=datetime.now(pytz.timezone(TIMEZONE))
-    )
-    scheduler.start()
-    logger.info(f"Фоновый планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
     
     # Запуск бота
     logger.info("Бот запущен.")
