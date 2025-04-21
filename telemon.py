@@ -184,6 +184,63 @@ def parse_rutracker_page(url):
         return None
 
 
+# Функция для скачивания торрент-файла
+def download_torrent(url):
+    try:
+        response = rutracker_session.get(url, proxies=proxies)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        logger.error(f"Ошибка скачивания торрента {url}: {str(e)}")
+        return None
+
+
+# Функция для добавления торрента в qBittorrent
+def add_torrent_to_qbittorrent(torrent_data):
+    global qbt_client
+    try:
+        if qbt_client is None:
+            logger.error("Клиент qBittorrent не инициализирован")
+            return False
+
+        qbt_client.torrents_add(torrent_files=torrent_data, category="from telegram")
+        logger.info("Торрент добавлен в qBittorrent")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка добавления торрента в qBittorrent: {str(e)}")
+        return False
+
+
+# Функция для очистки категории "from telegram" в qBittorrent
+def clear_telegram_category():
+    global qbt_client
+    try:
+        if qbt_client is None:
+            logger.error("Клиент qBittorrent не инициализирован")
+            return False
+            
+        torrents = qbt_client.torrents_info(category="from telegram")
+        for torrent in torrents:
+            qbt_client.torrents_delete(delete_files=False, hashes=torrent.hash)
+        logger.info("Категория 'from telegram' очищена")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка очистки категории: {str(e)}")
+        return False
+
+
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
+        "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
+        "/help - показать справку\n"
+        "/list - показать отслеживаемые раздачи\n"
+        "/clear - очистить категорию 'from telegram' в qBittorrent\n"
+        "/status - проверить статус подключений"
+    )
+
+
 # Команда /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -232,6 +289,25 @@ async def clear_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# Команда /status
+async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = await update.message.reply_text("Проверяю подключения...")
+    
+    # Проверяем подключения
+    proxy_status = check_proxy_connection()
+    rutracker_status = check_rutracker_connection()
+    qbt_status = init_qbittorrent() is not None
+    
+    status_text = (
+        f"Статус подключений:\n\n"
+        f"Прокси: {'✅ Подключено' if proxy_status else '❌ Ошибка подключения'}\n"
+        f"RuTracker: {'✅ Доступен' if rutracker_status else '❌ Недоступен'}\n"
+        f"qBittorrent: {'✅ Подключено' if qbt_status else '❌ Ошибка подключения'}\n"
+        f"Текущий часовой пояс: {TIMEZONE}\n"
+    )
+    await message.edit_text(status_text)
+
+
 # Обработчик кнопок
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -246,17 +322,125 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="Операция отменена.")
 
 
-# Остальные функции остаются без изменений (например, download_torrent, add_torrent_to_qbittorrent, команды Telegram)
-# Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! Я бот для отслеживания обновлений раздач на RuTracker.\n"
-        "Отправь мне ссылку на раздачу, и я буду следить за обновлениями.\n"
-        "/help - показать справку\n"
-        "/list - показать отслеживаемые раздачи\n"
-        "/clear - очистить категорию 'from telegram' в qBittorrent\n"
-        "/status - проверить статус подключений"
-    )
+# Обработчик ссылок
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    
+    # Проверка, что это ссылка на rutracker
+    if not re.match(r'https?://rutracker\.org/forum/viewtopic\.php\?t=\d+', url):
+        await update.message.reply_text("Пожалуйста, отправьте ссылку на раздачу rutracker.org")
+        return
+    
+    # Сообщаем пользователю о начале обработки
+    processing_msg = await update.message.reply_text("Обрабатываю ссылку, пожалуйста подождите...")
+    
+    # Парсим страницу
+    page_data = parse_rutracker_page(url)
+    if not page_data:
+        await processing_msg.edit_text("Не удалось получить информацию о раздаче.")
+        return
+    
+    user_id = update.message.from_user.id
+    current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Сохраняем в БД
+    conn = sqlite3.connect("telemon.db")
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO torrents (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
+            (url, page_data["title"], page_data["last_updated"], user_id, current_time)
+        )
+        conn.commit()
+        
+        # Скачиваем торрент и добавляем в qBittorrent
+        if page_data["dl_link"]:
+            torrent_data = download_torrent(page_data["dl_link"])
+            if torrent_data:
+                if add_torrent_to_qbittorrent(torrent_data):
+                    await processing_msg.edit_text(
+                        f"Раздача добавлена для отслеживания:\n"
+                        f"Название: {page_data['title']}\n"
+                        f"Последнее обновление: {page_data['last_updated']}\n"
+                        f"Торрент добавлен в qBittorrent."
+                    )
+                else:
+                    await processing_msg.edit_text(
+                        f"Раздача добавлена для отслеживания, но не удалось добавить торрент в qBittorrent:\n"
+                        f"Название: {page_data['title']}\n"
+                        f"Последнее обновление: {page_data['last_updated']}"
+                    )
+            else:
+                await processing_msg.edit_text(
+                    f"Раздача добавлена для отслеживания, но не удалось скачать торрент-файл:\n"
+                    f"Название: {page_data['title']}\n"
+                    f"Последнее обновление: {page_data['last_updated']}"
+                )
+        else:
+            await processing_msg.edit_text(
+                f"Раздача добавлена для отслеживания, но ссылка на торрент не найдена:\n"
+                f"Название: {page_data['title']}\n"
+                f"Последнее обновление: {page_data['last_updated']}"
+            )
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка базы данных: {str(e)}")
+        await processing_msg.edit_text(f"Произошла ошибка при сохранении в базу данных: {str(e)}")
+    finally:
+        conn.close()
+
+
+# Функция для проверки обновлений раздач
+async def check_updates(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Проверка обновлений...")
+    conn = sqlite3.connect("telemon.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, url, title, last_updated, added_by FROM torrents")
+    torrents = cursor.fetchall()
+    conn.close()
+
+    for torrent_id, url, title, last_updated, user_id in torrents:
+        page_data = parse_rutracker_page(url)
+        if not page_data:
+            continue
+
+        if page_data["last_updated"] != last_updated:
+            logger.info(f"Обнаружено обновление для {title}")
+            conn = sqlite3.connect("telemon.db")
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE torrents SET last_updated = ?, title = ? WHERE id = ?",
+                (page_data["last_updated"], page_data["title"], torrent_id),
+            )
+            conn.commit()
+            conn.close()
+
+            if page_data["dl_link"]:
+                torrent_data = download_torrent(page_data["dl_link"])
+                if torrent_data and add_torrent_to_qbittorrent(torrent_data):
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🔄 Обновление раздачи!\n\n"
+                        f"Название: {page_data['title']}\n"
+                        f"Новое время обновления: {page_data['last_updated']}\n"
+                        f"Торрент добавлен в qBittorrent.",
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🔄 Обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
+                        f"Название: {page_data['title']}\n"
+                        f"Новое время обновления: {page_data['last_updated']}",
+                    )
+            else:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"🔄 Обновление раздачи, но ссылка на торрент не найдена!\n\n"
+                    f"Название: {page_data['title']}\n"
+                    f"Новое время обновления: {page_data['last_updated']}",
+                )
+        await asyncio.sleep(5)
+
+    logger.info("Проверка обновлений завершена.")
 
 
 async def main():
@@ -284,6 +468,7 @@ async def main():
     application.add_handler(CommandHandler("clear", clear_category))
     application.add_handler(CommandHandler("status", check_status))
     application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     application.job_queue.run_repeating(check_updates, interval=timedelta(seconds=CHECK_INTERVAL), first=10)
 
     # Запуск бота
