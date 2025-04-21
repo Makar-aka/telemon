@@ -367,6 +367,25 @@ def handle_url(message):
     finally:
         conn.close()
 
+# Инициализация базы данных
+def init_db():
+    conn = sqlite3.connect("telemon.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS torrents (
+            id INTEGER PRIMARY KEY,
+            url TEXT UNIQUE,
+            title TEXT,
+            last_updated TEXT,
+            added_by INTEGER,
+            added_at TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+    logger.info("База данных инициализирована")
 
 # ===== ОСНОВНАЯ ЛОГИКА =====
 
