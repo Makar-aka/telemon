@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from qbittorrentapi import Client as QBittorrentClient
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -43,8 +43,8 @@ proxies = {
 
 # Инициализация глобальных переменных
 qbt_client = None
-application = None
-custom_scheduler = None
+bot = None
+scheduler = None
 
 # Функция проверки подключения к прокси
 def check_proxy_connection():
@@ -354,7 +354,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Функция для проверки обновлений раздач
 async def check_updates():
-    global application
+    global bot
     
     logger.info("Проверка обновлений...")
     conn = sqlite3.connect('telemon.db')
@@ -386,27 +386,36 @@ async def check_updates():
                 torrent_data = download_torrent(page_data['dl_link'])
                 if torrent_data and add_torrent_to_qbittorrent(torrent_data):
                     # Отправляем уведомление пользователю
-                    await application.bot.send_message(
-                        chat_id=user_id,
-                        text=f"🔄 Обнаружено обновление раздачи!\n\n"
-                             f"Название: {page_data['title']}\n"
-                             f"Новое время обновления: {page_data['last_updated']}\n"
-                             f"Торрент добавлен в qBittorrent."
-                    )
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=f"🔄 Обнаружено обновление раздачи!\n\n"
+                                 f"Название: {page_data['title']}\n"
+                                 f"Новое время обновления: {page_data['last_updated']}\n"
+                                 f"Торрент добавлен в qBittorrent."
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления: {str(e)}")
                 else:
-                    await application.bot.send_message(
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=f"🔄 Обнаружено обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
+                                 f"Название: {page_data['title']}\n"
+                                 f"Новое время обновления: {page_data['last_updated']}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления: {str(e)}")
+            else:
+                try:
+                    await bot.send_message(
                         chat_id=user_id,
-                        text=f"🔄 Обнаружено обновление раздачи, но не удалось добавить торрент в qBittorrent!\n\n"
+                        text=f"🔄 Обнаружено обновление раздачи, но не найдена ссылка на торрент!\n\n"
                              f"Название: {page_data['title']}\n"
                              f"Новое время обновления: {page_data['last_updated']}"
                     )
-            else:
-                await application.bot.send_message(
-                    chat_id=user_id,
-                    text=f"🔄 Обнаружено обновление раздачи, но не найдена ссылка на торрент!\n\n"
-                         f"Название: {page_data['title']}\n"
-                         f"Новое время обновления: {page_data['last_updated']}"
-                )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления: {str(e)}")
         
         # Небольшая задержка, чтобы не нагружать сервер
         await asyncio.sleep(5)
@@ -414,7 +423,7 @@ async def check_updates():
     logger.info("Проверка обновлений завершена.")
 
 async def main():
-    global qbt_client, application, custom_scheduler
+    global qbt_client, bot, scheduler
     
     # Инициализация БД
     init_db()
@@ -432,37 +441,48 @@ async def main():
     # Инициализируем глобальный клиент qBittorrent
     qbt_client = init_qbittorrent()
     
-    # Устанавливаем явно часовой пояс для библиотеки apscheduler
-    os.environ['TZ'] = TIMEZONE
-    time.tzset()  # Применяем часовой пояс для системы
-    
-    # Создаем экземпляр приложения
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Создаем собственный планировщик APScheduler
     try:
-        custom_scheduler = AsyncIOScheduler(timezone=pytz.timezone(TIMEZONE))
-        custom_scheduler.add_job(check_updates, 'interval', seconds=CHECK_INTERVAL, next_run_time=datetime.now(pytz.timezone(TIMEZONE)))
-        custom_scheduler.start()
-        logger.info(f"Планировщик задач запущен с часовым поясом {TIMEZONE}")
-    except Exception as e:
-        logger.error(f"Ошибка при настройке планировщика: {str(e)}")
-    
-    # Добавление обработчиков команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("list", list_torrents))
-    application.add_handler(CommandHandler("clear", clear_category))
-    application.add_handler(CommandHandler("status", check_status))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Обработчик URL
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
-    
-    logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
-    
-    # Запуск бота
-    await application.run_polling()
+        # Создаем экземпляр приложения БЕЗ ПЛАНИРОВЩИКА ЗАДАЧ
+        builder = ApplicationBuilder()
+        builder.token(TELEGRAM_TOKEN)
+        # Важно! Отключаем встроенный JobQueue, чтобы избежать проблем с часовым поясом
+        builder.job_queue(None)
+        application = builder.build()
+        
+        # Получаем доступ к боту из приложения
+        bot = application.bot
+        
+        # Добавление обработчиков команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("list", list_torrents))
+        application.add_handler(CommandHandler("clear", clear_category))
+        application.add_handler(CommandHandler("status", check_status))
+        application.add_handler(CallbackQueryHandler(button_callback))
+        
+        # Обработчик URL
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
+        
+        # Создаем собственный планировщик APScheduler с явно заданным часовым поясом
+        timezone_obj = pytz.timezone(TIMEZONE)
+        scheduler = AsyncIOScheduler(timezone=timezone_obj)
+        scheduler.add_job(
+            check_updates, 
+            'interval', 
+            seconds=CHECK_INTERVAL,
+            next_run_time=datetime.now(timezone_obj)
+        )
+        scheduler.start()
+        
+        logger.info(f"Бот запущен с часовым поясом: {TIMEZONE}")
+        logger.info(f"Планировщик задач запущен с интервалом {CHECK_INTERVAL} сек.")
+        
+        # Запуск бота
+        await application.run_polling()
+    finally:
+        # При завершении работы останавливаем планировщик
+        if scheduler:
+            scheduler.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
