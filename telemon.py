@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from qbittorrentapi import Client as QBittorrentClient
+from rutracker_api import RutrackerApi
 
 # Настройка логирования
 logging.basicConfig(
@@ -54,30 +55,19 @@ else:
 
 
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С ПОДКЛЮЧЕНИЯМИ =====
+rutracker_api = None
 
 # Функция для авторизации на RuTracker
 def login_to_rutracker():
-    login_url = "https://rutracker.org/forum/login.php"
-    payload = {
-        "login_username": RUTRACKER_USERNAME,
-        "login_password": RUTRACKER_PASSWORD,
-        "login": "Вход",
-    }
-
+    global rutracker_api
     try:
-        response = rutracker_session.post(login_url, data=payload, proxies=proxies, timeout=10)
-        response.raise_for_status()
-
-        if "bb_session" in rutracker_session.cookies:
-            logger.info("Успешная авторизация на RuTracker")
-            return True
-        else:
-            logger.error("Не удалось авторизоваться на RuTracker. Проверьте логин и пароль.")
-            return False
+        rutracker_api = RutrackerApi()
+        rutracker_api.login(RUTRACKER_USERNAME, RUTRACKER_PASSWORD)
+        logger.info("Успешная авторизация на RuTracker через API")
+        return True
     except Exception as e:
-        logger.error(f"Ошибка авторизации на RuTracker: {str(e)}")
+        logger.error(f"Ошибка авторизации на RuTracker через API: {str(e)}")
         return False
-
 
 # Функция проверки подключения к прокси
 def check_proxy_connection():
@@ -177,60 +167,36 @@ def init_db():
 # Функция для парсинга страницы раздачи
 def parse_rutracker_page(url):
     try:
-        response = rutracker_session.get(url, proxies=proxies)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        title = soup.select_one("h1.maintitle").text.strip()
-        update_info = soup.select_one("p.post-time")
-        last_updated = update_info.text.strip() if update_info else None
-        dl_link_elem = soup.select_one("a.dl-stub")
+        # Извлекаем ID топика из URL
+        topic_id = re.search(r't=(\d+)', url).group(1)
         
-        # Исправленная строка для формирования правильного URL
-        dl_link = f"https://rutracker.org/{dl_link_elem['href']}" if dl_link_elem and 'href' in dl_link_elem.attrs else None
+        # Получаем информацию о топике через API
+        topic = rutracker_api.get_topic(topic_id)
         
-        # Альтернативный вариант, который использует абсолютный путь, если он задан:
-        # Если ссылка начинается с "/", то добавляем домен
-        # if dl_link_elem and 'href' in dl_link_elem.attrs:
-        #     href = dl_link_elem['href']
-        #     if href.startswith('/'):
-        #         dl_link = f"https://rutracker.org{href}"
-        #     else:
-        #         dl_link = f"https://rutracker.org/{href}"
-        # else:
-        #     dl_link = None
-
-        return {"title": title, "last_updated": last_updated, "dl_link": dl_link}
+        # Формируем данные аналогично вашей исходной функции
+        return {
+            "title": topic.title,
+            "last_updated": topic.updated,  # Формат может отличаться
+            "dl_link": f"https://rutracker.org/forum/dl.php?t={topic_id}"
+        }
     except Exception as e:
-        logger.error(f"Ошибка парсинга страницы {url}: {str(e)}")
+        logger.error(f"Ошибка получения информации о раздаче {url}: {str(e)}")
         return None
-
 
 
 # Функция для скачивания торрент-файла
 def download_torrent(url):
     try:
-        logger.info(f"Скачивание торрента: {url}")
-        response = rutracker_session.get(url, proxies=proxies, timeout=30)  # Увеличиваем таймаут
-        response.raise_for_status()
-        return response.content
-    except requests.exceptions.ProxyError as e:
-        logger.error(f"Ошибка прокси при скачивании торрента {url}: {str(e)}")
+        # Извлекаем ID топика из URL
+        topic_id = re.search(r't=(\d+)', url).group(1)
         
-        # Можно попробовать скачать без прокси, если это допустимо в вашей ситуации
-        try:
-            logger.info("Пробуем скачать без прокси...")
-            response = rutracker_session.get(url, timeout=30, proxies=None)
-            response.raise_for_status()
-            return response.content
-        except Exception as e2:
-            logger.error(f"Ошибка скачивания торрента без прокси {url}: {str(e2)}")
-            return None
+        # Скачиваем торрент через API
+        torrent_data = rutracker_api.download_torrent(topic_id)
+        logger.info(f"Торрент {topic_id} успешно скачан через API")
+        return torrent_data
     except Exception as e:
-        logger.error(f"Ошибка скачивания торрента {url}: {str(e)}")
+        logger.error(f"Ошибка скачивания торрента {url} через API: {str(e)}")
         return None
-
-
 
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С QBITTORRENT =====
 
