@@ -185,7 +185,20 @@ def parse_rutracker_page(url):
         update_info = soup.select_one("p.post-time")
         last_updated = update_info.text.strip() if update_info else None
         dl_link_elem = soup.select_one("a.dl-stub")
-        dl_link = f"https://rutracker.org{dl_link_elem['href']}" if dl_link_elem and 'href' in dl_link_elem.attrs else None
+        
+        # Исправленная строка для формирования правильного URL
+        dl_link = f"https://rutracker.org/{dl_link_elem['href']}" if dl_link_elem and 'href' in dl_link_elem.attrs else None
+        
+        # Альтернативный вариант, который использует абсолютный путь, если он задан:
+        # Если ссылка начинается с "/", то добавляем домен
+        # if dl_link_elem and 'href' in dl_link_elem.attrs:
+        #     href = dl_link_elem['href']
+        #     if href.startswith('/'):
+        #         dl_link = f"https://rutracker.org{href}"
+        #     else:
+        #         dl_link = f"https://rutracker.org/{href}"
+        # else:
+        #     dl_link = None
 
         return {"title": title, "last_updated": last_updated, "dl_link": dl_link}
     except Exception as e:
@@ -193,15 +206,30 @@ def parse_rutracker_page(url):
         return None
 
 
+
 # Функция для скачивания торрент-файла
 def download_torrent(url):
     try:
-        response = rutracker_session.get(url, proxies=proxies)
+        logger.info(f"Скачивание торрента: {url}")
+        response = rutracker_session.get(url, proxies=proxies, timeout=30)  # Увеличиваем таймаут
         response.raise_for_status()
         return response.content
+    except requests.exceptions.ProxyError as e:
+        logger.error(f"Ошибка прокси при скачивании торрента {url}: {str(e)}")
+        
+        # Можно попробовать скачать без прокси, если это допустимо в вашей ситуации
+        try:
+            logger.info("Пробуем скачать без прокси...")
+            response = rutracker_session.get(url, timeout=30, proxies=None)
+            response.raise_for_status()
+            return response.content
+        except Exception as e2:
+            logger.error(f"Ошибка скачивания торрента без прокси {url}: {str(e2)}")
+            return None
     except Exception as e:
         logger.error(f"Ошибка скачивания торрента {url}: {str(e)}")
         return None
+
 
 
 # ===== ФУНКЦИИ ДЛЯ РАБОТЫ С QBITTORRENT =====
