@@ -44,6 +44,37 @@ def init_db():
     conn.close()
     logger.info("База данных инициализирована")
 
+def get_min_free_id():
+    """Найти минимальный свободный ID для новой записи в таблице series."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        # Получаем все существующие ID
+        cursor.execute("SELECT id FROM series ORDER BY id")
+        existing_ids = [row[0] for row in cursor.fetchall()]
+        
+        # Если таблица пуста, начинаем с ID = 1
+        if not existing_ids:
+            return 1
+            
+        # Ищем первую "дырку" в последовательности ID
+        expected_id = 1
+        for id_value in existing_ids:
+            if id_value > expected_id:
+                # Нашли свободный ID
+                return expected_id
+            expected_id = id_value + 1
+            
+        # Если нет "дырок", возвращаем следующий ID после максимального
+        return expected_id
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка поиска минимального свободного ID: {e}")
+        # В случае ошибки возвращаем None, и будет использован автоинкремент
+        return None
+    finally:
+        conn.close()
+
 def add_user(user_id: int, username: str, is_admin: bool = False):
     """Добавить пользователя в базу данных."""
     conn = sqlite3.connect(DB_FILE)
@@ -161,15 +192,25 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
     now = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     
     try:
-        cursor.execute(
-            "INSERT OR REPLACE INTO series (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
-            (url, title, last_updated, added_by, now)
-        )
+        # Ищем свободный ID
+        free_id = get_min_free_id()
+        
+        if free_id is not None:
+            # Используем найденный свободный ID
+            cursor.execute(
+                "INSERT OR REPLACE INTO series (id, url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (free_id, url, title, last_updated, added_by, now)
+            )
+            series_id = free_id
+        else:
+            # Если поиск свободного ID не удался, используем автоинкремент
+            cursor.execute(
+                "INSERT OR REPLACE INTO series (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
+                (url, title, last_updated, added_by, now)
+            )
+            series_id = cursor.lastrowid
+            
         conn.commit()
-        
-        # Получаем ID добавленной записи
-        series_id = cursor.lastrowid
-        
         logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных с ID {series_id}.")
         return series_id
     except sqlite3.Error as e:
@@ -177,7 +218,6 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
         return None
     finally:
         conn.close()
-
 
 def remove_series(series_id: int = None, url: str = None):
     """Удалить сериал из базы данных."""
