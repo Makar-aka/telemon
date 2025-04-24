@@ -79,23 +79,23 @@ class RutrackerClient:
             if not title_element:
                 logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
                 return None
-        
+    
             full_title = title_element.text.strip()
-        
+    
             # Берем только часть до первого символа "/"
             title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
 
             # Получаем информацию о времени обновления
             update_info = soup.select_one("p.post-time")
-        
+    
             # Формируем дату в нужном формате
             last_updated = ""
             if update_info:
                 # Получаем текст с информацией о времени
                 time_text = update_info.text.strip()
-            
-                # Ищем дату обновления
-                update_match = re.search(r'изменени[еяй]:?\s*([0-9]{1,2}-[А-Яа-я]+-\d{2})\s+(\d{1,2}:\d{2})', time_text)
+        
+                # Ищем дату обновления, убирая информацию об авторе изменения
+                update_match = re.search(r'изменени[еяй]:?\s*([0-9]{1,2}-[А-Яа-я]+-\d{2})\s+(\d{1,2}:\d{2})(?:\s+от\s+[^\s|]+)?', time_text)
                 if update_match:
                     date_part = update_match.group(1)  # Например, "23-Апр-25"
                     time_part = update_match.group(2)  # Например, "12:07"
@@ -106,7 +106,7 @@ class RutrackerClient:
                     if create_match:
                         date_str = create_match.group(1)  # Например, "23 Апреля 2025"
                         time_str = create_match.group(2)  # Например, "12:07"
-                    
+                
                         # Преобразуем в нужный формат "23-Апр-25"
                         try:
                             date_obj = datetime.strptime(date_str, "%d %B %Y")
@@ -116,9 +116,15 @@ class RutrackerClient:
                             last_updated = f"созд. {formatted_date} {time_str}"
                         except Exception as e:
                             logger.error(f"Ошибка форматирования даты: {e}")
-                            last_updated = time_text.replace("|", "").strip()
+                            # В случае ошибки берем только дату и время, без информации об авторе
+                            clean_time_text = re.sub(r'\|.*$', '', time_text).strip()
+                            clean_time_text = re.sub(r'от\s+\S+\s*$', '', clean_time_text).strip()
+                            last_updated = clean_time_text
                     else:
-                        last_updated = time_text.replace("|", "").strip()
+                        # Удаляем всё после символа "|" и упоминания "от <username>"
+                        clean_time_text = re.sub(r'\|.*$', '', time_text).strip()
+                        clean_time_text = re.sub(r'от\s+\S+\s*$', '', clean_time_text).strip()
+                        last_updated = clean_time_text
             else:
                 # Если не нашли информацию о времени, используем текущее время
                 current_time = datetime.now(pytz.timezone(TIMEZONE))
@@ -132,7 +138,6 @@ class RutrackerClient:
         except Exception as e:
             logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
-
 
 
     def download_torrent(self, topic_id):
