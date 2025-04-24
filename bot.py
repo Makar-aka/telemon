@@ -418,7 +418,7 @@ def handle_update_callback(call):
         return
     
     # Обновляем информацию в базе данных
-    update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
+    update_result = update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
     
     # Скачиваем и добавляем торрент
     torrent_data = rutracker.download_torrent(page_info["topic_id"])
@@ -427,21 +427,38 @@ def handle_update_callback(call):
     else:
         bot.answer_callback_query(call.id, "Сериал обновлен, но не удалось добавить торрент.")
     
-    # Обновляем информацию в сообщении
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
-    markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
-    markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
-    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
-    
-    bot.edit_message_text(
-        f"Серия: {page_info['title']}\n"
-        f"Последнее обновление: {page_info['last_updated']}\n"
-        f"Добавлена: {added_at}",
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=markup
-    )
+    # Проверяем, изменилось ли что-то
+    if update_result and (page_info["title"] != title or page_info["last_updated"] != last_updated):
+        # Обновляем информацию в сообщении
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
+        markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
+        markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
+        
+        try:
+            bot.edit_message_text(
+                f"Серия: {page_info['title']}\n"
+                f"Последнее обновление: {page_info['last_updated']}\n"
+                f"Добавлена: {added_at}",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении сообщения: {e}")
+            # Если ошибка всё еще возникает, попробуем отправить новое сообщение вместо обновления
+            bot.send_message(
+                call.message.chat.id,
+                f"Серия: {page_info['title']}\n"
+                f"Последнее обновление: {page_info['last_updated']}\n"
+                f"Добавлена: {added_at}",
+                reply_markup=markup
+            )
+    else:
+        # Если нет изменений, просто уведомляем
+        bot.answer_callback_query(call.id, "Нет новых обновлений для этого сериала.")
+
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))

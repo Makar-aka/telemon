@@ -79,24 +79,43 @@ class RutrackerClient:
             if not title_element:
                 logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
                 return None
-        
+    
             full_title = title_element.text.strip()
-        
+    
             # Берем только часть до первого символа "/"
             title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
 
             # Получаем время обновления страницы
             current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d.%m.%Y %H:%M")
             last_updated = current_time  # По умолчанию используем текущее время
-        
+    
             # Пытаемся найти время последнего обновления в основном посте
             update_info = soup.select_one("p.post-time")
             if update_info:
                 time_text = update_info.text.strip()
-                # Удаляем информацию об авторе (обычно после символа '|' или после 'от')
-                time_text = re.split(r'\||\sот\s', time_text)[0].strip()
-                last_updated = time_text
-        
+            
+                # Обработка более сложных случаев
+                # 1. Удаляем всё после символа "|"
+                if "|" in time_text:
+                    time_text = time_text.split("|")[0].strip()
+                
+                # 2. Удаляем всё после "от " (обычно показывает автора)
+                if " от " in time_text:
+                    time_text = time_text.split(" от ")[0].strip()
+                
+                # 3. Удаляем "Последнее изменение:" если есть
+                if "Последнее изменение:" in time_text:
+                    time_text = time_text.replace("Последнее изменение:", "").strip()
+            
+                # Если время определено успешно, используем его
+                if time_text:
+                    last_updated = time_text
+                
+                # Добавляем метку для отслеживания изменений (например, случайное число)
+                # Чтобы избежать ошибки "message is not modified"
+                import random
+                last_updated = f"{last_updated} [{random.randint(1000, 9999)}]"
+    
             return {
                 "title": title,
                 "last_updated": last_updated,
@@ -105,6 +124,7 @@ class RutrackerClient:
         except Exception as e:
             logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
+
 
 
 
