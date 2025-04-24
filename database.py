@@ -89,3 +89,20 @@ def get_all_users():
         return []
     finally:
         conn.close()
+
+def add_torrent(url: str, title: str, last_updated: str, added_by: int, added_at: str):
+    """Добавить раздачу в базу данных."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO torrents (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
+            (url, title, last_updated, added_by, added_at)
+        )
+        conn.commit()
+        logger.info(f"Раздача {title} (URL: {url}) добавлена в базу данных.")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка добавления раздачи: {e}")
+    finally:
+        conn.close()
+
