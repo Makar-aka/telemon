@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 import pytz
+import re  # Добавлен импорт re для использования регулярных выражений
 from datetime import datetime
 from config import TIMEZONE
 
@@ -43,6 +44,22 @@ def init_db():
     conn.commit()
     conn.close()
     logger.info("База данных инициализирована")
+
+def clean_title(title):
+    """
+    Очищает название от имени создателя/обновившего.
+    Удаляет текст после символов | или [ или содержимое в круглых скобках в конце строки.
+    """
+    # Удаляем текст после символа |
+    title = title.split('|')[0].strip()
+    
+    # Удаляем текст после символа [
+    title = title.split('[')[0].strip()
+    
+    # Удаляем круглые скобки с содержимым в конце строки
+    title = re.sub(r'\s*\([^)]*\)\s*$', '', title)
+    
+    return title
 
 def get_min_free_id():
     """Найти минимальный свободный ID для новой записи в таблице series."""
@@ -191,6 +208,9 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
     cursor = conn.cursor()
     now = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     
+    # Очищаем название от имени создателя/обновившего
+    clean_title_text = clean_title(title)
+    
     try:
         # Ищем свободный ID
         free_id = get_min_free_id()
@@ -199,19 +219,19 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
             # Используем найденный свободный ID
             cursor.execute(
                 "INSERT OR REPLACE INTO series (id, url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (free_id, url, title, last_updated, added_by, now)
+                (free_id, url, clean_title_text, last_updated, added_by, now)
             )
             series_id = free_id
         else:
             # Если поиск свободного ID не удался, используем автоинкремент
             cursor.execute(
                 "INSERT OR REPLACE INTO series (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
-                (url, title, last_updated, added_by, now)
+                (url, clean_title_text, last_updated, added_by, now)
             )
             series_id = cursor.lastrowid
             
         conn.commit()
-        logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных с ID {series_id}.")
+        logger.info(f"Сериал {clean_title_text} (URL: {url}) добавлен в базу данных с ID {series_id}.")
         return series_id
     except sqlite3.Error as e:
         logger.error(f"Ошибка добавления сериала: {e}")
@@ -249,7 +269,9 @@ def update_series(series_id: int, title: str = None, last_updated: str = None):
     
     try:
         if title:
-            cursor.execute("UPDATE series SET title = ? WHERE id = ?", (title, series_id))
+            # Очищаем название от имени создателя/обновившего
+            clean_title_text = clean_title(title)
+            cursor.execute("UPDATE series SET title = ? WHERE id = ?", (clean_title_text, series_id))
         if last_updated:
             cursor.execute("UPDATE series SET last_updated = ? WHERE id = ?", (last_updated, series_id))
         conn.commit()
