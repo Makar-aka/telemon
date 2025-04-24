@@ -136,8 +136,11 @@ def handle_force_dl(message):
         if not topic_id:
             continue
         
+        # Тег для идентификации торрента
+        tag = f"id_{series_id}"
+        
         torrent_data = rutracker.download_torrent(topic_id)
-        if torrent_data and qbittorrent.add_torrent(torrent_data, title):
+        if torrent_data and qbittorrent.add_torrent(torrent_data, title, tags=tag):
             success_count += 1
         else:
             fail_count += 1
@@ -147,6 +150,7 @@ def handle_force_dl(message):
         f"Загрузка завершена. Успешно: {success_count}, С ошибками: {fail_count}"
     )
     logger.info(f"Пользователь {message.from_user.id} запустил принудительную загрузку")
+
 
 @bot.message_handler(commands=['force_cl'])
 @admin_required
@@ -249,15 +253,19 @@ def handle_url(message):
         return
     
     # Добавляем сериал в базу данных
-    if add_series(url, page_info["title"], page_info["last_updated"], message.from_user.id):
+    series_id = add_series(url, page_info["title"], page_info["last_updated"], message.from_user.id)
+    if series_id:
         bot.send_message(
             message.chat.id,
             f"Сериал \"{page_info['title']}\" добавлен для отслеживания."
         )
         
+        # Создаем тег в формате "id_XXX"
+        tag = f"id_{series_id}"
+        
         # Скачиваем и добавляем торрент
         torrent_data = rutracker.download_torrent(page_info["topic_id"])
-        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"]):
+        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
             bot.send_message(
                 message.chat.id,
                 "Торрент успешно добавлен в qBittorrent."
@@ -274,6 +282,7 @@ def handle_url(message):
         )
     
     logger.info(f"Пользователь {message.from_user.id} добавил сериал: {url}")
+
 
 @bot.message_handler(func=lambda message: True)
 @admin_required
@@ -399,6 +408,9 @@ def handle_update_callback(call):
     
     series_id, url, title, last_updated, added_by, added_at = series
     
+    # Тег для идентификации торрента
+    tag = f"id_{series_id}"
+    
     # Получаем актуальную информацию о странице
     page_info = rutracker.get_page_info(url)
     if not page_info:
@@ -410,7 +422,7 @@ def handle_update_callback(call):
     
     # Скачиваем и добавляем торрент
     torrent_data = rutracker.download_torrent(page_info["topic_id"])
-    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"]):
+    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
         bot.answer_callback_query(call.id, "Сериал обновлен и торрент добавлен в qBittorrent.")
     else:
         bot.answer_callback_query(call.id, "Сериал обновлен, но не удалось добавить торрент.")
@@ -431,26 +443,19 @@ def handle_update_callback(call):
         reply_markup=markup
     )
 
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
 @admin_required
 def handle_delete_callback(call):
     series_id = int(call.data.split('_')[1])
     
-    # Получаем данные о сериале перед удалением
-    series = get_series(series_id=series_id)
-    if not series:
-        bot.answer_callback_query(call.id, "Сериал не найден.")
-        return
-    
-    series_id, url, title, last_updated, added_by, added_at = series
+    # Тег для идентификации торрента
+    tag = f"id_{series_id}"
     
     # Удаляем сериал из БД
     if remove_series(series_id=series_id):
-        # Извлекаем текст до первого символа "/" для поиска соответствующего торрента
-        title_part = title.split('/')[0].strip()
-        
-        # Удаляем соответствующий торрент из qBittorrent
-        if qbittorrent.find_and_delete_torrent_by_title(title_part, delete_files=False):
+        # Удаляем торрент по тегу
+        if qbittorrent.delete_torrent_by_tag(tag, delete_files=False):
             bot.answer_callback_query(call.id, "Сериал и соответствующий торрент удалены.")
         else:
             bot.answer_callback_query(call.id, "Сериал удален, но соответствующий торрент не найден.")
@@ -459,6 +464,7 @@ def handle_delete_callback(call):
         handle_list_callback(call)
     else:
         bot.answer_callback_query(call.id, "Не удалось удалить сериал.")
+
 
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_list')

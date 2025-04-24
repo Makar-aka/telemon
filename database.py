@@ -156,7 +156,7 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
     """Добавить сериал в базу данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     
     try:
         cursor.execute(
@@ -164,13 +164,18 @@ def add_series(url: str, title: str, last_updated: str, added_by: int):
             (url, title, last_updated, added_by, now)
         )
         conn.commit()
-        logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных.")
-        return True
+        
+        # Получаем ID добавленной записи
+        series_id = cursor.lastrowid
+        
+        logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных с ID {series_id}.")
+        return series_id
     except sqlite3.Error as e:
         logger.error(f"Ошибка добавления сериала: {e}")
-        return False
+        return None
     finally:
         conn.close()
+
 
 def remove_series(series_id: int = None, url: str = None):
     """Удалить сериал из базы данных."""
