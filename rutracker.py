@@ -14,28 +14,28 @@ class RuTracker:
         } if PROXY_URL else None
 
     def login(self) -> bool:
-        """Авторизация на RuTracker."""
+        """РђРІС‚РѕСЂРёР·Р°С†РёСЏ РЅР° RuTracker."""
         login_url = "https://rutracker.org/forum/login.php"
         payload = {
             "login_username": RUTRACKER_USERNAME,
             "login_password": RUTRACKER_PASSWORD,
-            "login": "Вход",
+            "login": "Р’С…РѕРґ",
         }
         try:
             response = self.session.post(login_url, data=payload, proxies=self.proxies, timeout=20)
             response.raise_for_status()
             if "bb_session" in self.session.cookies:
-                logger.info("Успешная авторизация на RuTracker")
+                logger.info("РЈСЃРїРµС€РЅР°СЏ Р°РІС‚РѕСЂРёР·Р°С†РёСЏ РЅР° RuTracker")
                 return True
             else:
-                logger.error("Не удалось авторизоваться на RuTracker")
+                logger.error("РќРµ СѓРґР°Р»РѕСЃСЊ Р°РІС‚РѕСЂРёР·РѕРІР°С‚СЊСЃСЏ РЅР° RuTracker")
                 return False
         except Exception as e:
-            logger.error(f"Ошибка авторизации на RuTracker: {e}")
+            logger.error(f"РћС€РёР±РєР° Р°РІС‚РѕСЂРёР·Р°С†РёРё РЅР° RuTracker: {e}")
             return False
 
     def parse_page(self, url: str):
-        """Парсинг страницы раздачи."""
+        """РџР°СЂСЃРёРЅРі СЃС‚СЂР°РЅРёС†С‹ СЂР°Р·РґР°С‡Рё."""
         try:
             response = self.session.get(url, proxies=self.proxies, timeout=20)
             response.raise_for_status()
@@ -44,5 +44,5 @@ class RuTracker:
             last_updated = soup.select_one("p.post-time").text.strip()
             return {"title": title, "last_updated": last_updated}
         except Exception as e:
-            logger.error(f"Ошибка парсинга страницы {url}: {e}")
+            logger.error(f"РћС€РёР±РєР° РїР°СЂСЃРёРЅРіР° СЃС‚СЂР°РЅРёС†С‹ {url}: {e}")
             return None

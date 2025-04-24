@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-# Загрузка переменных окружения
+# Р—Р°РіСЂСѓР·РєР° РїРµСЂРµРјРµРЅРЅС‹С… РѕРєСЂСѓР¶РµРЅРёСЏ
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -19,7 +19,7 @@ ALLOWED_USERS = [
     int(user_id.strip()) for user_id in os.getenv("ALLOWED_USERS", "").split(",") if user_id.strip()
 ]
 
-# Проверка обязательных переменных
+# РџСЂРѕРІРµСЂРєР° РѕР±СЏР·Р°С‚РµР»СЊРЅС‹С… РїРµСЂРµРјРµРЅРЅС‹С…
 REQUIRED_VARS = [
     "TELEGRAM_TOKEN", "QBITTORRENT_URL", "QBITTORRENT_USERNAME", "QBITTORRENT_PASSWORD",
     "RUTRACKER_USERNAME", "RUTRACKER_PASSWORD"
@@ -27,4 +27,4 @@ REQUIRED_VARS = [
 
 for var in REQUIRED_VARS:
     if not os.getenv(var):
-        raise EnvironmentError(f"Переменная окружения {var} не задана.")
+        raise EnvironmentError(f"РџРµСЂРµРјРµРЅРЅР°СЏ РѕРєСЂСѓР¶РµРЅРёСЏ {var} РЅРµ Р·Р°РґР°РЅР°.")

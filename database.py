@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 DB_FILE = "telemon.db"
 
 def init_db():
-    """Инициализация базы данных."""
+    """РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р±Р°Р·С‹ РґР°РЅРЅС‹С…."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
@@ -23,10 +23,10 @@ def init_db():
     )
     conn.commit()
     conn.close()
-    logger.info("База данных инициализирована")
+    logger.info("Р‘Р°Р·Р° РґР°РЅРЅС‹С… РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°")
 
 def add_torrent(url: str, title: str, last_updated: str, added_by: int, added_at: str):
-    """Добавление раздачи в базу данных."""
+    """Р”РѕР±Р°РІР»РµРЅРёРµ СЂР°Р·РґР°С‡Рё РІ Р±Р°Р·Сѓ РґР°РЅРЅС‹С…."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
@@ -36,12 +36,12 @@ def add_torrent(url: str, title: str, last_updated: str, added_by: int, added_at
         )
         conn.commit()
     except sqlite3.Error as e:
-        logger.error(f"Ошибка базы данных: {e}")
+        logger.error(f"РћС€РёР±РєР° Р±Р°Р·С‹ РґР°РЅРЅС‹С…: {e}")
     finally:
         conn.close()
 
 def get_all_torrents():
-    """Получение всех раздач из базы данных."""
+    """РџРѕР»СѓС‡РµРЅРёРµ РІСЃРµС… СЂР°Р·РґР°С‡ РёР· Р±Р°Р·С‹ РґР°РЅРЅС‹С…."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT id, url, title, last_updated, added_by FROM torrents")

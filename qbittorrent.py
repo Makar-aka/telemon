@@ -9,7 +9,7 @@ class QBittorrent:
         self.client = None
 
     def connect(self) -> bool:
-        """Подключение к qBittorrent."""
+        """РџРѕРґРєР»СЋС‡РµРЅРёРµ Рє qBittorrent."""
         try:
             self.client = Client(
                 host=QBITTORRENT_URL,
@@ -17,18 +17,18 @@ class QBittorrent:
                 password=QBITTORRENT_PASSWORD,
             )
             self.client.auth_log_in()
-            logger.info(f"Успешное подключение к qBittorrent. Версия: {self.client.app.version}")
+            logger.info(f"РЈСЃРїРµС€РЅРѕРµ РїРѕРґРєР»СЋС‡РµРЅРёРµ Рє qBittorrent. Р’РµСЂСЃРёСЏ: {self.client.app.version}")
             return True
         except Exception as e:
-            logger.error(f"Ошибка подключения к qBittorrent: {e}")
+            logger.error(f"РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє qBittorrent: {e}")
             return False
 
     def add_torrent(self, torrent_data: bytes) -> bool:
-        """Добавление торрента в qBittorrent."""
+        """Р”РѕР±Р°РІР»РµРЅРёРµ С‚РѕСЂСЂРµРЅС‚Р° РІ qBittorrent."""
         try:
             self.client.torrents_add(torrent_files=torrent_data, category="from telegram")
-            logger.info("Торрент добавлен в qBittorrent")
+            logger.info("РўРѕСЂСЂРµРЅС‚ РґРѕР±Р°РІР»РµРЅ РІ qBittorrent")
             return True
         except Exception as e:
-            logger.error(f"Ошибка добавления торрента в qBittorrent: {e}")
+            logger.error(f"РћС€РёР±РєР° РґРѕР±Р°РІР»РµРЅРёСЏ С‚РѕСЂСЂРµРЅС‚Р° РІ qBittorrent: {e}")
             return False
