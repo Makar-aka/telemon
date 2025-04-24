@@ -21,6 +21,12 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="bot.py" />
+    <Compile Include="config.py" />
+    <Compile Include="database.py" />
+    <Compile Include="main.py" />
+    <Compile Include="qbittorrent.py" />
+    <Compile Include="rutracker.py" />
     <Compile Include="telemon.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
