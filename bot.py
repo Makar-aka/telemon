@@ -435,12 +435,31 @@ def handle_update_callback(call):
 @admin_required
 def handle_delete_callback(call):
     series_id = int(call.data.split('_')[1])
+    
+    # Получаем данные о сериале перед удалением
+    series = get_series(series_id=series_id)
+    if not series:
+        bot.answer_callback_query(call.id, "Сериал не найден.")
+        return
+    
+    series_id, url, title, last_updated, added_by, added_at = series
+    
+    # Удаляем сериал из БД
     if remove_series(series_id=series_id):
-        bot.answer_callback_query(call.id, "Сериал удалён из списка отслеживаемых.")
+        # Извлекаем текст до первого символа "/" для поиска соответствующего торрента
+        title_part = title.split('/')[0].strip()
+        
+        # Удаляем соответствующий торрент из qBittorrent
+        if qbittorrent.find_and_delete_torrent_by_title(title_part, delete_files=False):
+            bot.answer_callback_query(call.id, "Сериал и соответствующий торрент удалены.")
+        else:
+            bot.answer_callback_query(call.id, "Сериал удален, но соответствующий торрент не найден.")
+        
         # Возвращаемся к списку
         handle_list_callback(call)
     else:
         bot.answer_callback_query(call.id, "Не удалось удалить сериал.")
+
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_list')
 @admin_required

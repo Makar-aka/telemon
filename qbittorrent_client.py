@@ -73,3 +73,35 @@ class QBittorrentClient:
         except Exception as e:
             logger.error(f"Ошибка проверки подключения к qBittorrent: {e}")
             return False
+    def find_and_delete_torrent_by_title(self, title_pattern, delete_files=False):
+        """
+        Находит и удаляет торренты, название которых содержит указанный текст.
+    
+        Args:
+            title_pattern: Часть названия для поиска
+            delete_files: Удалять ли файлы вместе с торрентом
+    
+        Returns:
+            bool: True если хотя бы один торрент был удален, False в противном случае
+        """
+        try:
+            if self.client is None:
+                if not self.connect():
+                    return False
+        
+            # Получаем список всех торрентов
+            torrents = self.client.torrents_info(category="from telegram")
+            deleted = False
+        
+            # Ищем торренты, содержащие указанный текст в названии
+            for torrent in torrents:
+                if title_pattern.lower() in torrent.name.lower():
+                    logger.info(f"Найден соответствующий торрент: {torrent.name}")
+                    self.client.torrents_delete(delete_files=delete_files, hashes=torrent.hash)
+                    deleted = True
+                    logger.info(f"Торрент удален: {torrent.name}")
+        
+            return deleted
+        except Exception as e:
+            logger.error(f"Ошибка удаления торрента по названию: {e}")
+            return False
