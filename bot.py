@@ -1,8 +1,8 @@
 import logging
 from telebot import TeleBot
 from telebot.types import Message
-from config import TELEGRAM_TOKEN, ALLOWED_USERS
-from database import add_torrent, get_all_torrents
+from config import TELEGRAM_TOKEN, MAIN_ADMIN_ID
+from database import add_user, remove_user, is_admin, get_all_users, add_torrent, get_all_torrents
 from rutracker import RuTracker
 from qbittorrent import QBittorrent
 
@@ -17,13 +17,13 @@ bot = TeleBot(TELEGRAM_TOKEN)
 rutracker = RuTracker()
 qbittorrent = QBittorrent()
 
-# Список администраторов
-ADMINS = set()
+# Добавляем главного администратора при запуске
+add_user(MAIN_ADMIN_ID, "Главный администратор", is_admin=True)
 
 # Декоратор для проверки администратора
 def admin_required(func):
     def wrapper(message: Message, *args, **kwargs):
-        if message.from_user.id not in ADMINS:
+        if not is_admin(message.from_user.id):
             bot.send_message(message.chat.id, "Эта команда доступна только администраторам.")
             logger.warning(f"Пользователь {message.from_user.id} попытался выполнить административную команду.")
             return
@@ -114,48 +114,69 @@ def handle_status(message: Message):
 @admin_required
 def handle_users(message: Message):
     """Список всех пользователей (административная команда)."""
-    bot.send_message(message.chat.id, "Список всех пользователей: ...")
-    logger.info(f"Администратор {message.from_user.id} запросил список пользователей (/users).")
+    users = get_all_users()
+    if not users:
+        bot.send_message(message.chat.id, "Список пользователей пуст.")
+        return
+    response = "Список пользователей:\n"
+    for user_id, username, is_admin_flag in users:
+        role = "Администратор" if is_admin_flag else "Пользователь"
+        response += f"{username} (ID: {user_id}) - {role}\n"
+    bot.send_message(message.chat.id, response)
+    logger.info(f"Администратор {message.from_user.id} запросил список пользователей.")
 
 @bot.message_handler(commands=["makeadmin"])
 @admin_required
 def handle_makeadmin(message: Message):
     """Сделать пользователя администратором."""
     args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        user_id = int(args[1])
-        ADMINS.add(user_id)
-        bot.send_message(message.chat.id, f"Пользователь {user_id} добавлен в администраторы.")
-        logger.info(f"Администратор {message.from_user.id} добавил пользователя {user_id} в администраторы.")
-    else:
-        bot.send_message(message.chat.id, "Укажите ID пользователя для добавления в администраторы.")
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Использование: /makeadmin <user_id>")
+        return
+    user_id = int(args[1])
+    add_user(user_id, "Неизвестный", is_admin=True)
+    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} теперь администратор.")
+    logger.info(f"Администратор {message.from_user.id} сделал пользователя с ID {user_id} администратором.")
 
 @bot.message_handler(commands=["removeadmin"])
 @admin_required
 def handle_removeadmin(message: Message):
     """Удалить пользователя из администраторов."""
     args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        user_id = int(args[1])
-        ADMINS.discard(user_id)
-        bot.send_message(message.chat.id, f"Пользователь {user_id} удалён из администраторов.")
-        logger.info(f"Администратор {message.from_user.id} удалил пользователя {user_id} из администраторов.")
-    else:
-        bot.send_message(message.chat.id, "Укажите ID пользователя для удаления из администраторов.")
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Использование: /removeadmin <user_id>")
+        return
+    user_id = int(args[1])
+    add_user(user_id, "Неизвестный", is_admin=False)
+    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} больше не администратор.")
+    logger.info(f"Администратор {message.from_user.id} удалил права администратора у пользователя с ID {user_id}.")
 
 @bot.message_handler(commands=["adduser"])
 @admin_required
 def handle_adduser(message: Message):
-    """Добавить пользователя (административная команда)."""
-    bot.send_message(message.chat.id, "Добавление пользователя...")
-    logger.info(f"Администратор {message.from_user.id} запросил добавление пользователя (/adduser).")
+    """Добавить пользователя."""
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3:
+        bot.send_message(message.chat.id, "Использование: /adduser <user_id> <username>")
+        return
+    user_id = int(args[1])
+    username = args[2]
+    add_user(user_id, username)
+    bot.send_message(message.chat.id, f"Пользователь {username} (ID: {user_id}) добавлен.")
+    logger.info(f"Администратор {message.from_user.id} добавил пользователя {username} (ID: {user_id}).")
 
 @bot.message_handler(commands=["userdel"])
 @admin_required
 def handle_userdel(message: Message):
-    """Удалить пользователя (административная команда)."""
-    bot.send_message(message.chat.id, "Удаление пользователя...")
-    logger.info(f"Администратор {message.from_user.id} запросил удаление пользователя (/userdel).")
+    """Удалить пользователя."""
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Использование: /userdel <user_id>")
+        return
+    user_id = int(args[1])
+    remove_user(user_id)
+    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} удалён.")
+    logger.info(f"Администратор {message.from_user.id} удалил пользователя с ID {user_id}.")
 
 @bot.message_handler(commands=["force"])
 @admin_required
