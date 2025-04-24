@@ -55,89 +55,54 @@ class RutrackerClient:
             return match.group(1)
         return None
 
-    def get_page_info(self, url):
-        """Получить информацию о странице раздачи."""
-        try:
-            # Если нет активной сессии, пытаемся переподключиться
+def get_page_info(self, url):
+    """Получить информацию о странице раздачи."""
+    try:
+        # Если нет активной сессии, пытаемся переподключиться
+        if not self.is_logged_in:
+            self.is_logged_in = self.login()
             if not self.is_logged_in:
-                self.is_logged_in = self.login()
-                if not self.is_logged_in:
-                    logger.error("Не удалось авторизоваться для получения информации о странице")
-                    return None
-
-            topic_id = self.get_topic_id(url)
-            if not topic_id:
-                logger.error(f"Не удалось получить ID темы из URL: {url}")
+                logger.error("Не удалось авторизоваться для получения информации о странице")
                 return None
 
-            response = self.session.get(url, proxies=self.proxies, timeout=20)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # Получаем заголовок
-            title_element = soup.select_one("h1.maintitle")
-            if not title_element:
-                logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
-                return None
-    
-            full_title = title_element.text.strip()
-    
-            # Берем только часть до первого символа "/"
-            title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
-
-            # Получаем информацию о времени обновления
-            update_info = soup.select_one("p.post-time")
-    
-            # Формируем дату в нужном формате
-            last_updated = ""
-            if update_info:
-                # Получаем текст с информацией о времени
-                time_text = update_info.text.strip()
-        
-                # Ищем дату обновления, убирая информацию об авторе изменения
-                update_match = re.search(r'изменени[еяй]:?\s*([0-9]{1,2}-[А-Яа-я]+-\d{2})\s+(\d{1,2}:\d{2})(?:\s+от\s+[^\s|]+)?', time_text)
-                if update_match:
-                    date_part = update_match.group(1)  # Например, "23-Апр-25"
-                    time_part = update_match.group(2)  # Например, "12:07"
-                    last_updated = f"ред. {date_part} {time_part}"
-                else:
-                    # Если нет информации об изменении, берем дату создания
-                    create_match = re.search(r'([0-9]{1,2}\s+[А-Яа-я]+\s+\d{4}),?\s+(\d{1,2}:\d{2})', time_text)
-                    if create_match:
-                        date_str = create_match.group(1)  # Например, "23 Апреля 2025"
-                        time_str = create_match.group(2)  # Например, "12:07"
-                
-                        # Преобразуем в нужный формат "23-Апр-25"
-                        try:
-                            date_obj = datetime.strptime(date_str, "%d %B %Y")
-                            month_short = date_obj.strftime("%b")[:3]  # Сокращение месяца до 3 букв
-                            year_short = date_obj.strftime("%y")  # Последние 2 цифры года
-                            formatted_date = f"{date_obj.day}-{month_short}-{year_short}"
-                            last_updated = f"созд. {formatted_date} {time_str}"
-                        except Exception as e:
-                            logger.error(f"Ошибка форматирования даты: {e}")
-                            # В случае ошибки берем только дату и время, без информации об авторе
-                            clean_time_text = re.sub(r'\|.*$', '', time_text).strip()
-                            clean_time_text = re.sub(r'от\s+\S+\s*$', '', clean_time_text).strip()
-                            last_updated = clean_time_text
-                    else:
-                        # Удаляем всё после символа "|" и упоминания "от <username>"
-                        clean_time_text = re.sub(r'\|.*$', '', time_text).strip()
-                        clean_time_text = re.sub(r'от\s+\S+\s*$', '', clean_time_text).strip()
-                        last_updated = clean_time_text
-            else:
-                # Если не нашли информацию о времени, используем текущее время
-                current_time = datetime.now(pytz.timezone(TIMEZONE))
-                last_updated = f"ред. {current_time.strftime('%d-%b-%y %H:%M')}"
-
-            return {
-                "title": title,
-                "last_updated": last_updated,
-                "topic_id": topic_id
-            }
-        except Exception as e:
-            logger.error(f"Ошибка получения информации о странице {url}: {e}")
+        topic_id = self.get_topic_id(url)
+        if not topic_id:
+            logger.error(f"Не удалось получить ID темы из URL: {url}")
             return None
+
+        response = self.session.get(url, proxies=self.proxies, timeout=20)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Получаем заголовок
+        title_element = soup.select_one("h1.maintitle")
+        if not title_element:
+            logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
+            return None
+        
+        full_title = title_element.text.strip()
+        
+        # Берем только часть до первого символа "/"
+        title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
+
+        # Получаем время обновления страницы
+        current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d.%m.%Y %H:%M")
+        last_updated = current_time  # По умолчанию используем текущее время
+        
+        # Пытаемся найти время последнего обновления в основном посте
+        update_info = soup.select_one("p.post-time")
+        if update_info:
+            last_updated = update_info.text.strip()
+        
+        return {
+            "title": title,
+            "last_updated": last_updated,
+            "topic_id": topic_id
+        }
+    except Exception as e:
+        logger.error(f"Ошибка получения информации о странице {url}: {e}")
+        return None
+
 
 
     def download_torrent(self, topic_id):
