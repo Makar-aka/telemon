@@ -85,12 +85,14 @@ def handle_help(message):
         "/force_dl - Принудительно загрузить все торренты\n"
         "/force_cl - Очистить категорию 'from telegram' в qBittorrent\n"
         "/add - Добавить сериал для отслеживания\n"
+        "/users - Просмотр списка пользователей\n" 
         "/adduser - Добавить пользователя\n"
         "/deluser - Удалить пользователя\n"
         "/addadmin - Сделать пользователя администратором\n"
     )
     bot.send_message(message.chat.id, help_text)
     logger.info(f"Пользователь {message.from_user.id} запросил справку")
+
 
 @bot.message_handler(commands=['list'])
 @admin_required
@@ -104,11 +106,16 @@ def handle_list(message):
     markup = InlineKeyboardMarkup()
     for series in series_list:
         series_id, url, title, last_updated, added_by, added_at = series
-        button_text = f"{title} ({last_updated})"
+        
+        # Извлекаем текст до первого символа "/"
+        title_part = title.split('/')[0].strip()
+        
+        button_text = f"{title_part} - {last_updated}"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
     logger.info(f"Пользователь {message.from_user.id} запросил список сериалов")
+
 
 @bot.message_handler(commands=['force_dl'])
 @admin_required
@@ -162,6 +169,24 @@ def handle_add(message):
     )
     user_states[message.from_user.id] = State.WAITING_FOR_URL
     logger.info(f"Пользователь {message.from_user.id} начал добавление сериала")
+
+@bot.message_handler(commands=['users'])
+@admin_required
+def handle_users(message):
+    """Отображение списка всех пользователей."""
+    users = get_all_users()
+    if not users:
+        bot.send_message(message.chat.id, "В базе данных нет зарегистрированных пользователей.")
+        logger.info(f"Пользователь {message.from_user.id} запросил список пользователей, но список пуст.")
+        return
+
+    response = "Список пользователей:\n\n"
+    for user_id, username, is_admin in users:
+        status = "👑 Администратор" if is_admin else "👤 Пользователь"
+        response += f"{status}: {username} (ID: {user_id})\n"
+
+    bot.send_message(message.chat.id, response)
+    logger.info(f"Пользователь {message.from_user.id} запросил список пользователей.")
 
 @bot.message_handler(commands=['adduser'])
 @admin_required
@@ -432,7 +457,11 @@ def handle_list_callback(call):
     markup = InlineKeyboardMarkup()
     for series in series_list:
         series_id, url, title, last_updated, added_by, added_at = series
-        button_text = f"{title} ({last_updated})"
+        
+        # Извлекаем текст до первого символа "/"
+        title_part = title.split('/')[0].strip()
+        
+        button_text = f"{title_part} - {last_updated}"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.edit_message_text(
@@ -441,4 +470,3 @@ def handle_list_callback(call):
         message_id=call.message.message_id,
         reply_markup=markup
     )
-
