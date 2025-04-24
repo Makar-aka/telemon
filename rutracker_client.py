@@ -80,11 +80,29 @@ class RutrackerClient:
                 return None
             title = title.text.strip()
 
+            # Получаем информацию о времени обновления
             update_info = soup.select_one("p.post-time")
-            
+        
             # Используем указанный часовой пояс для получения текущего времени
             current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
-            last_updated = update_info.text.strip() if update_info else current_time
+        
+            # Обработка времени обновления
+            if update_info:
+                # Извлекаем только дату и время, без информации об авторе
+                time_text = update_info.text.strip()
+            
+                # Если в тексте есть "|", то берём только часть до него
+                if "|" in time_text:
+                    time_text = time_text.split("|")[0].strip()
+            
+                # Если в тексте есть "Последнее изменение:", удаляем всё после него
+                if "Последнее изменение:" in time_text:
+                    time_text = time_text.split("Последнее изменение:")[0].strip()
+            
+                # Убираем лишние пробелы
+                last_updated = re.sub(r'\s+', ' ', time_text).strip()
+            else:
+                last_updated = current_time
 
             return {
                 "title": title,
@@ -94,6 +112,7 @@ class RutrackerClient:
         except Exception as e:
             logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
+
 
     def download_torrent(self, topic_id):
         """Скачать торрент-файл."""
