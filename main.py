@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from bot import bot, rutracker_client, qbittorrent_client
+from bot import bot, rutracker, qbittorrent
 from database import init_db, get_all_series, update_series
 from config import CHECK_INTERVAL
 
