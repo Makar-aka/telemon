@@ -2,7 +2,7 @@ import logging
 from bot import bot
 from database import init_db
 
-# Настройка логирования
+# РќР°СЃС‚СЂРѕР№РєР° Р»РѕРіРёСЂРѕРІР°РЅРёСЏ
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -11,16 +11,16 @@ logger = logging.getLogger(__name__)
 
 def main():
     try:
-        logger.info("Инициализация базы данных...")
+        logger.info("РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р±Р°Р·С‹ РґР°РЅРЅС‹С…...")
         init_db()
-        logger.info("База данных успешно инициализирована.")
+        logger.info("Р‘Р°Р·Р° РґР°РЅРЅС‹С… СѓСЃРїРµС€РЅРѕ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°.")
 
-        logger.info("Запуск Telegram-бота...")
+        logger.info("Р—Р°РїСѓСЃРє Telegram-Р±РѕС‚Р°...")
         bot.polling(none_stop=True)
     except KeyboardInterrupt:
-        logger.info("Остановка приложения (KeyboardInterrupt).")
+        logger.info("РћСЃС‚Р°РЅРѕРІРєР° РїСЂРёР»РѕР¶РµРЅРёСЏ (KeyboardInterrupt).")
     except Exception as e:
-        logger.error(f"Ошибка при запуске приложения: {e}", exc_info=True)
+        logger.error(f"РћС€РёР±РєР° РїСЂРё Р·Р°РїСѓСЃРєРµ РїСЂРёР»РѕР¶РµРЅРёСЏ: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
