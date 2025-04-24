@@ -55,53 +55,53 @@ class RutrackerClient:
             return match.group(1)
         return None
 
-def get_page_info(self, url):
-    """Получить информацию о странице раздачи."""
-    try:
-        # Если нет активной сессии, пытаемся переподключиться
-        if not self.is_logged_in:
-            self.is_logged_in = self.login()
+    def get_page_info(self, url):
+        """Получить информацию о странице раздачи."""
+        try:
+            # Если нет активной сессии, пытаемся переподключиться
             if not self.is_logged_in:
-                logger.error("Не удалось авторизоваться для получения информации о странице")
+                self.is_logged_in = self.login()
+                if not self.is_logged_in:
+                    logger.error("Не удалось авторизоваться для получения информации о странице")
+                    return None
+
+            topic_id = self.get_topic_id(url)
+            if not topic_id:
+                logger.error(f"Не удалось получить ID темы из URL: {url}")
                 return None
 
-        topic_id = self.get_topic_id(url)
-        if not topic_id:
-            logger.error(f"Не удалось получить ID темы из URL: {url}")
+            response = self.session.get(url, proxies=self.proxies, timeout=20)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Получаем заголовок
+            title_element = soup.select_one("h1.maintitle")
+            if not title_element:
+                logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
+                return None
+        
+            full_title = title_element.text.strip()
+        
+            # Берем только часть до первого символа "/"
+            title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
+
+            # Получаем время обновления страницы
+            current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d.%m.%Y %H:%M")
+            last_updated = current_time  # По умолчанию используем текущее время
+        
+            # Пытаемся найти время последнего обновления в основном посте
+            update_info = soup.select_one("p.post-time")
+            if update_info:
+                last_updated = update_info.text.strip()
+        
+            return {
+                "title": title,
+                "last_updated": last_updated,
+                "topic_id": topic_id
+            }
+        except Exception as e:
+            logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
-
-        response = self.session.get(url, proxies=self.proxies, timeout=20)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # Получаем заголовок
-        title_element = soup.select_one("h1.maintitle")
-        if not title_element:
-            logger.error(f"Не удалось найти заголовок раздачи на странице {url}")
-            return None
-        
-        full_title = title_element.text.strip()
-        
-        # Берем только часть до первого символа "/"
-        title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
-
-        # Получаем время обновления страницы
-        current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d.%m.%Y %H:%M")
-        last_updated = current_time  # По умолчанию используем текущее время
-        
-        # Пытаемся найти время последнего обновления в основном посте
-        update_info = soup.select_one("p.post-time")
-        if update_info:
-            last_updated = update_info.text.strip()
-        
-        return {
-            "title": title,
-            "last_updated": last_updated,
-            "topic_id": topic_id
-        }
-    except Exception as e:
-        logger.error(f"Ошибка получения информации о странице {url}: {e}")
-        return None
 
 
 
