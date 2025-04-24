@@ -106,3 +106,83 @@ def add_torrent(url: str, title: str, last_updated: str, added_by: int, added_at
     finally:
         conn.close()
 
+def remove_torrent(torrent_id: int = None, url: str = None):
+    """Удалить раздачу из базы данных."""
+    if not torrent_id and not url:
+        logger.error("Необходимо указать torrent_id или url для удаления раздачи.")
+        return
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        if torrent_id:
+            cursor.execute("DELETE FROM torrents WHERE id = ?", (torrent_id,))
+        elif url:
+            cursor.execute("DELETE FROM torrents WHERE url = ?", (url,))
+        conn.commit()
+        logger.info(f"Раздача с ID {torrent_id} или URL {url} удалена из базы данных.")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка удаления раздачи: {e}")
+    finally:
+        conn.close()
+
+def update_torrent(torrent_id: int, title: str = None, last_updated: str = None):
+    """Обновить информацию о раздаче."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        if title:
+            cursor.execute("UPDATE torrents SET title = ? WHERE id = ?", (title, torrent_id))
+        if last_updated:
+            cursor.execute("UPDATE torrents SET last_updated = ? WHERE id = ?", (last_updated, torrent_id))
+        conn.commit()
+        logger.info(f"Раздача с ID {torrent_id} обновлена.")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка обновления раздачи: {e}")
+    finally:
+        conn.close()
+
+def get_torrent(torrent_id: int = None, url: str = None):
+    """Получить информацию о раздаче."""
+    if not torrent_id and not url:
+        logger.error("Необходимо указать torrent_id или url для получения раздачи.")
+        return None
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        if torrent_id:
+            cursor.execute("SELECT * FROM torrents WHERE id = ?", (torrent_id,))
+        elif url:
+            cursor.execute("SELECT * FROM torrents WHERE url = ?", (url,))
+        return cursor.fetchone()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка получения раздачи: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_all_torrents():
+    """Получить список всех раздач."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM torrents")
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка получения списка раздач: {e}")
+        return []
+    finally:
+        conn.close()
+
+def torrent_exists(url: str) -> bool:
+    """Проверить, существует ли раздача в базе данных."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM torrents WHERE url = ?", (url,))
+        return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка проверки существования раздачи: {e}")
+        return False
+    finally:
+        conn.close()
+
