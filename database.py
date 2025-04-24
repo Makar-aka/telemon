@@ -1,13 +1,40 @@
 import sqlite3
 import logging
 import pytz
-import re  # Добавлен импорт re для использования регулярных выражений
+import re
 from datetime import datetime
 from config import TIMEZONE
 
 logger = logging.getLogger(__name__)
 
 DB_FILE = "rutracker_bot.db"
+
+def clean_title(title):
+    """
+    Очищает название от имени создателя/обновившего.
+    Удаляет текст после характерных маркеров, указывающих на автора.
+    """
+    # Удаляем текст после "от "
+    if " от " in title:
+        title = title.split(" от ")[0].strip()
+    
+    # Удаляем текст после символа |
+    if "|" in title:
+        title = title.split('|')[0].strip()
+    
+    # Удаляем текст после символа [
+    if "[" in title:
+        title = title.split('[')[0].strip()
+    
+    # Удаляем текст внутри круглых скобок в конце строки (обычно там версия или год)
+    # но только если это последние скобки в строке
+    title = re.sub(r'\s*\([^)]*\)\s*$', '', title)
+    
+    # Удаляем многочисленные пробелы
+    title = re.sub(r'\s+', ' ', title)
+    
+    # Удаляем пробелы в конце
+    return title.strip()
 
 def init_db():
     """Инициализация базы данных."""
@@ -44,22 +71,6 @@ def init_db():
     conn.commit()
     conn.close()
     logger.info("База данных инициализирована")
-
-def clean_title(title):
-    """
-    Очищает название от имени создателя/обновившего.
-    Удаляет текст после символов | или [ или содержимое в круглых скобках в конце строки.
-    """
-    # Удаляем текст после символа |
-    title = title.split('|')[0].strip()
-    
-    # Удаляем текст после символа [
-    title = title.split('[')[0].strip()
-    
-    # Удаляем круглые скобки с содержимым в конце строки
-    title = re.sub(r'\s*\([^)]*\)\s*$', '', title)
-    
-    return title
 
 def get_min_free_id():
     """Найти минимальный свободный ID для новой записи в таблице series."""
