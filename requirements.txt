@@ -1,0 +1,6 @@
+python-telegram-bot==13.7
+python-dotenv==0.19.2
+rutracker-api==1.0.0
+qbittorrent-api==2022.4.30
+requests==2.26.0
+beautifulsoup4==4.10.0

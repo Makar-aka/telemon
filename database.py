@@ -1,35 +1,43 @@
 import sqlite3
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-DB_FILE = "telemon.db"
+DB_FILE = "rutracker_bot.db"
 
 def init_db():
     """Инициализация базы данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS torrents (
-            id INTEGER PRIMARY KEY,
-            url TEXT UNIQUE,
-            title TEXT,
-            last_updated TEXT,
-            added_by INTEGER,
-            added_at TEXT
-        )
-        """
-    )
+    
+    # Таблица пользователей
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
-            is_admin INTEGER DEFAULT 0
+            is_admin INTEGER DEFAULT 0,
+            added_at TEXT
         )
         """
     )
+    
+    # Таблица сериалов (раздач)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS series (
+            id INTEGER PRIMARY KEY,
+            url TEXT UNIQUE,
+            title TEXT,
+            last_updated TEXT,
+            added_by INTEGER,
+            added_at TEXT,
+            FOREIGN KEY (added_by) REFERENCES users(user_id)
+        )
+        """
+    )
+    
     conn.commit()
     conn.close()
     logger.info("База данных инициализирована")
@@ -38,15 +46,33 @@ def add_user(user_id: int, username: str, is_admin: bool = False):
     """Добавить пользователя в базу данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     try:
         cursor.execute(
-            "INSERT OR REPLACE INTO users (user_id, username, is_admin) VALUES (?, ?, ?)",
-            (user_id, username, int(is_admin))
+            "INSERT OR REPLACE INTO users (user_id, username, is_admin, added_at) VALUES (?, ?, ?, ?)",
+            (user_id, username, int(is_admin), now)
         )
         conn.commit()
         logger.info(f"Пользователь {username} (ID: {user_id}) добавлен в базу данных.")
+        return True
     except sqlite3.Error as e:
         logger.error(f"Ошибка добавления пользователя: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_user(user_id: int):
+    """Получить информацию о пользователе."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT user_id, username, is_admin FROM users WHERE user_id = ?", (user_id,))
+        return cursor.fetchone()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка получения пользователя: {e}")
+        return None
     finally:
         conn.close()
 
@@ -54,12 +80,15 @@ def remove_user(user_id: int):
     """Удалить пользователя из базы данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     try:
         cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         conn.commit()
         logger.info(f"Пользователь с ID {user_id} удалён из базы данных.")
+        return True
     except sqlite3.Error as e:
         logger.error(f"Ошибка удаления пользователя: {e}")
+        return False
     finally:
         conn.close()
 
@@ -67,6 +96,7 @@ def is_admin(user_id: int) -> bool:
     """Проверить, является ли пользователь администратором."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     try:
         cursor.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,))
         result = cursor.fetchone()
@@ -77,10 +107,27 @@ def is_admin(user_id: int) -> bool:
     finally:
         conn.close()
 
+def make_admin(user_id: int):
+    """Сделать пользователя администратором."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("UPDATE users SET is_admin = 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
+        logger.info(f"Пользователь с ID {user_id} стал администратором.")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка назначения администратора: {e}")
+        return False
+    finally:
+        conn.close()
+
 def get_all_users():
     """Получить список всех пользователей."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     try:
         cursor.execute("SELECT user_id, username, is_admin FROM users")
         return cursor.fetchall()
@@ -90,99 +137,128 @@ def get_all_users():
     finally:
         conn.close()
 
-def add_torrent(url: str, title: str, last_updated: str, added_by: int, added_at: str):
-    """Добавить раздачу в базу данных."""
+def has_admins():
+    """Проверить наличие администраторов в системе."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
     try:
-        cursor.execute(
-            "INSERT OR REPLACE INTO torrents (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
-            (url, title, last_updated, added_by, added_at)
-        )
-        conn.commit()
-        logger.info(f"Раздача {title} (URL: {url}) добавлена в базу данных.")
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+        count = cursor.fetchone()[0]
+        return count > 0
     except sqlite3.Error as e:
-        logger.error(f"Ошибка добавления раздачи: {e}")
-    finally:
-        conn.close()
-
-def remove_torrent(torrent_id: int = None, url: str = None):
-    """Удалить раздачу из базы данных."""
-    if not torrent_id and not url:
-        logger.error("Необходимо указать torrent_id или url для удаления раздачи.")
-        return
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        if torrent_id:
-            cursor.execute("DELETE FROM torrents WHERE id = ?", (torrent_id,))
-        elif url:
-            cursor.execute("DELETE FROM torrents WHERE url = ?", (url,))
-        conn.commit()
-        logger.info(f"Раздача с ID {torrent_id} или URL {url} удалена из базы данных.")
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка удаления раздачи: {e}")
-    finally:
-        conn.close()
-
-def update_torrent(torrent_id: int, title: str = None, last_updated: str = None):
-    """Обновить информацию о раздаче."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        if title:
-            cursor.execute("UPDATE torrents SET title = ? WHERE id = ?", (title, torrent_id))
-        if last_updated:
-            cursor.execute("UPDATE torrents SET last_updated = ? WHERE id = ?", (last_updated, torrent_id))
-        conn.commit()
-        logger.info(f"Раздача с ID {torrent_id} обновлена.")
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка обновления раздачи: {e}")
-    finally:
-        conn.close()
-
-def get_torrent(torrent_id: int = None, url: str = None):
-    """Получить информацию о раздаче."""
-    if not torrent_id and not url:
-        logger.error("Необходимо указать torrent_id или url для получения раздачи.")
-        return None
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        if torrent_id:
-            cursor.execute("SELECT * FROM torrents WHERE id = ?", (torrent_id,))
-        elif url:
-            cursor.execute("SELECT * FROM torrents WHERE url = ?", (url,))
-        return cursor.fetchone()
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка получения раздачи: {e}")
-        return None
-    finally:
-        conn.close()
-
-def get_all_torrents():
-    """Получить список всех раздач."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT * FROM torrents")
-        return cursor.fetchall()
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка получения списка раздач: {e}")
-        return []
-    finally:
-        conn.close()
-
-def torrent_exists(url: str) -> bool:
-    """Проверить, существует ли раздача в базе данных."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT 1 FROM torrents WHERE url = ?", (url,))
-        return cursor.fetchone() is not None
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка проверки существования раздачи: {e}")
+        logger.error(f"Ошибка проверки наличия администраторов: {e}")
         return False
     finally:
         conn.close()
 
+def add_series(url: str, title: str, last_updated: str, added_by: int):
+    """Добавить сериал в базу данных."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO series (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
+            (url, title, last_updated, added_by, now)
+        )
+        conn.commit()
+        logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных.")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка добавления сериала: {e}")
+        return False
+    finally:
+        conn.close()
+
+def remove_series(series_id: int = None, url: str = None):
+    """Удалить сериал из базы данных."""
+    if not series_id and not url:
+        logger.error("Необходимо указать series_id или url для удаления сериала.")
+        return False
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        if series_id:
+            cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
+        elif url:
+            cursor.execute("DELETE FROM series WHERE url = ?", (url,))
+        conn.commit()
+        logger.info(f"Сериал с ID {series_id} или URL {url} удалён из базы данных.")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка удаления сериала: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_series(series_id: int, title: str = None, last_updated: str = None):
+    """Обновить информацию о сериале."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        if title:
+            cursor.execute("UPDATE series SET title = ? WHERE id = ?", (title, series_id))
+        if last_updated:
+            cursor.execute("UPDATE series SET last_updated = ? WHERE id = ?", (last_updated, series_id))
+        conn.commit()
+        logger.info(f"Сериал с ID {series_id} обновлён.")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка обновления сериала: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_series(series_id: int = None, url: str = None):
+    """Получить информацию о сериале."""
+    if not series_id and not url:
+        logger.error("Необходимо указать series_id или url для получения сериала.")
+        return None
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        if series_id:
+            cursor.execute("SELECT * FROM series WHERE id = ?", (series_id,))
+        elif url:
+            cursor.execute("SELECT * FROM series WHERE url = ?", (url,))
+        return cursor.fetchone()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка получения сериала: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_all_series():
+    """Получить список всех сериалов."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT id, url, title, last_updated, added_by, added_at FROM series")
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка получения списка сериалов: {e}")
+        return []
+    finally:
+        conn.close()
+
+def series_exists(url: str) -> bool:
+    """Проверить, существует ли сериал в базе данных."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT 1 FROM series WHERE url = ?", (url,))
+        return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка проверки существования сериала: {e}")
+        return False
+    finally:
+        conn.close()

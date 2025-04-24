@@ -1,195 +1,444 @@
 import logging
 from telebot import TeleBot
-from telebot.types import Message
-from config import TELEGRAM_TOKEN, MAIN_ADMIN_ID
-from database import add_user, remove_user, is_admin, get_all_users, add_torrent, get_all_torrents
-from rutracker import RuTracker
-from qbittorrent import QBittorrent
-
-
-# Настройка логирования
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from config import TELEGRAM_TOKEN
+from database import (
+    init_db, add_user, get_user, remove_user, is_admin, make_admin, get_all_users, has_admins,
+    add_series, remove_series, update_series, get_series, get_all_series, series_exists
 )
+from rutracker_client import RutrackerClient
+from qbittorrent_client import QBittorrentClient
+
 logger = logging.getLogger(__name__)
 
+# Инициализация бота
 bot = TeleBot(TELEGRAM_TOKEN)
-rutracker = RuTracker()
-qbittorrent = QBittorrent()
+rutracker = RutrackerClient()
+qbittorrent = QBittorrentClient()
 
-# Добавляем главного администратора при запуске
-add_user(MAIN_ADMIN_ID, "Главный администратор", is_admin=True)
-logger.info(f"Главный администратор с ID {MAIN_ADMIN_ID} добавлен в базу данных.")
+# Словарь для хранения состояний пользователей
+user_states = {}
 
-# Декоратор для проверки администратора
+# Состояния (конечный автомат)
+class State:
+    IDLE = 0
+    WAITING_FOR_URL = 1
+    WAITING_FOR_USER_ID = 2
+    WAITING_FOR_ADMIN_ID = 3
+    WAITING_FOR_USER_ID_TO_DELETE = 4
+
+# Декоратор для проверки доступа администратора
 def admin_required(func):
-    def wrapper(message: Message, *args, **kwargs):
-        if not is_admin(message.from_user.id):
-            bot.send_message(message.chat.id, "Эта команда доступна только администраторам.")
-            logger.warning(f"Пользователь {message.from_user.id} попытался выполнить административную команду.")
+    def wrapper(message, *args, **kwargs):
+        user_id = message.from_user.id
+        
+        # Если администраторов нет, то первый пользователь становится администратором
+        if not has_admins():
+            user = get_user(user_id)
+            if not user:
+                add_user(user_id, message.from_user.username or str(user_id), is_admin=True)
+                bot.send_message(
+                    message.chat.id,
+                    "Вы стали первым пользователем и получили права администратора."
+                )
+            else:
+                make_admin(user_id)
+                bot.send_message(
+                    message.chat.id,
+                    "Вы получили права администратора."
+                )
+            return func(message, *args, **kwargs)
+        
+        # Проверяем, является ли пользователь администратором
+        if not is_admin(user_id):
+            bot.send_message(
+                message.chat.id,
+                "У вас нет доступа к этому боту. Обратитесь к администратору."
+            )
+            logger.warning(f"Попытка несанкционированного доступа от пользователя {user_id}")
             return
+        
         return func(message, *args, **kwargs)
+    
     return wrapper
 
-@bot.message_handler(commands=["start"])
-def handle_start(message: Message):
-    bot.send_message(message.chat.id, "Привет! Я бот для отслеживания раздач.")
-    logger.info(f"Пользователь {message.from_user.id} начал работу с ботом (/start).")
+@bot.message_handler(commands=['start'])
+@admin_required
+def handle_start(message):
+    bot.send_message(
+        message.chat.id,
+        "Привет! Я бот для отслеживания обновлений сериалов на RuTracker.\n"
+        "Отправьте мне ссылку на страницу раздачи, чтобы начать отслеживание.\n"
+        "Используйте /help для получения списка доступных команд."
+    )
+    user_states[message.from_user.id] = State.IDLE
+    logger.info(f"Пользователь {message.from_user.id} запустил бота")
 
-@bot.message_handler(commands=["add"])
-def handle_add(message: Message):
-    """Добавить страницу для отслеживания."""
-    args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        url = args[1]
-        # Логика добавления страницы
-        bot.send_message(message.chat.id, f"Страница {url} добавлена для отслеживания.")
-        logger.info(f"Пользователь {message.from_user.id} добавил страницу {url}.")
-    else:
-        bot.send_message(message.chat.id, "Отправьте ссылку на страницу для добавления.")
-        logger.info(f"Пользователь {message.from_user.id} начал диалог для добавления страницы.")
-
-@bot.message_handler(commands=["list"])
-def handle_list(message: Message):
-    torrents = get_all_torrents()
-    if not torrents:
-        bot.send_message(message.chat.id, "Нет отслеживаемых страниц.")
-        logger.info(f"Пользователь {message.from_user.id} запросил список страниц, но список пуст.")
-    else:
-        response = "\n".join([f"{t[2]} ({t[1]})" for t in torrents])
-        bot.send_message(message.chat.id, response)
-        logger.info(f"Пользователь {message.from_user.id} запросил список страниц. Отправлено {len(torrents)} страниц.")
-
-@bot.message_handler(commands=["update"])
-def handle_update(message: Message):
-    """Обновить страницу."""
-    bot.send_message(message.chat.id, "Обновление страницы...")
-    logger.info(f"Пользователь {message.from_user.id} запросил обновление страницы (/update).")
-    # Логика обновления страницы
-
-@bot.message_handler(commands=["check"])
-def handle_check(message: Message):
-    """Проверить страницы сейчас."""
-    bot.send_message(message.chat.id, "Проверка всех страниц...")
-    logger.info(f"Пользователь {message.from_user.id} запросил проверку страниц (/check).")
-    # Логика проверки страниц
-
-@bot.message_handler(commands=["help"])
-def handle_help(message: Message):
-    """Обработчик команды /help."""
+@bot.message_handler(commands=['help'])
+@admin_required
+def handle_help(message):
     help_text = (
         "Список доступных команд:\n"
         "/start - Начать работу с ботом\n"
         "/help - Показать это сообщение\n"
-        "/add <url> - Добавить страницу с аргументом\n"
-        "/add - Начать диалог для добавления страницы\n"
-        "/list - Показать отслеживаемые страницы\n"
-        "/update - Обновить страницу\n"
-        "/check - Проверить страницы сейчас\n"
-        "/subscribe - Подписаться на обновления\n"
-        "/status - Показать статус подписки\n"
-        "/users - Список всех пользователей (административная команда)\n"
-        "/makeadmin - Сделать пользователя администратором (административная команда)\n"
-        "/removeadmin - Удалить пользователя из администраторов (административная команда)\n"
-        "/adduser - Добавить пользователя (административная команда)\n"
-        "/userdel - Удалить пользователя (административная команда)\n"
-        "/force - Принудительно обновить страницу (административная команда)\n"
-        "/clean - Очистка директории с файлами (административная команда)"
+        "/list - Показать список отслеживаемых сериалов\n"
+        "/force_dl - Принудительно загрузить все торренты\n"
+        "/force_cl - Очистить категорию 'from telegram' в qBittorrent\n"
+        "/add - Добавить сериал для отслеживания\n"
+        "/adduser - Добавить пользователя\n"
+        "/deluser - Удалить пользователя\n"
+        "/addadmin - Сделать пользователя администратором\n"
     )
     bot.send_message(message.chat.id, help_text)
-    logger.info(f"Пользователь {message.from_user.id} запросил справку (/help).")
+    logger.info(f"Пользователь {message.from_user.id} запросил справку")
 
-@bot.message_handler(commands=["subscribe"])
-def handle_subscribe(message: Message):
-    """Подписаться на обновления."""
-    bot.send_message(message.chat.id, "Вы подписались на обновления.")
-    logger.info(f"Пользователь {message.from_user.id} подписался на обновления (/subscribe).")
-
-@bot.message_handler(commands=["status"])
-def handle_status(message: Message):
-    """Показать статус подписки."""
-    bot.send_message(message.chat.id, "Ваш статус подписки: Активен.")
-    logger.info(f"Пользователь {message.from_user.id} запросил статус подписки (/status).")
-
-@bot.message_handler(commands=["users"])
+@bot.message_handler(commands=['list'])
 @admin_required
-def handle_users(message: Message):
-    """Список всех пользователей (административная команда)."""
-    users = get_all_users()
-    if not users:
-        bot.send_message(message.chat.id, "Список пользователей пуст.")
+def handle_list(message):
+    series_list = get_all_series()
+    if not series_list:
+        bot.send_message(message.chat.id, "Нет отслеживаемых сериалов.")
+        logger.info(f"Пользователь {message.from_user.id} запросил список сериалов (пусто)")
         return
-    response = "Список пользователей:\n"
-    for user_id, username, is_admin_flag in users:
-        role = "Администратор" if is_admin_flag else "Пользователь"
-        response += f"{username} (ID: {user_id}) - {role}\n"
-    bot.send_message(message.chat.id, response)
-    logger.info(f"Администратор {message.from_user.id} запросил список пользователей.")
 
-@bot.message_handler(commands=["makeadmin"])
+    markup = InlineKeyboardMarkup()
+    for series in series_list:
+        series_id, url, title, last_updated, added_by, added_at = series
+        button_text = f"{title} ({last_updated})"
+        markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
+
+    bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
+    logger.info(f"Пользователь {message.from_user.id} запросил список сериалов")
+
+@bot.message_handler(commands=['force_dl'])
 @admin_required
-def handle_makeadmin(message: Message):
-    """Сделать пользователя администратором."""
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(message.chat.id, "Использование: /makeadmin <user_id>")
+def handle_force_dl(message):
+    bot.send_message(message.chat.id, "Начинаю принудительную загрузку всех торрентов...")
+    
+    series_list = get_all_series()
+    if not series_list:
+        bot.send_message(message.chat.id, "Нет отслеживаемых сериалов.")
         return
-    user_id = int(args[1])
-    add_user(user_id, "Неизвестный", is_admin=True)
-    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} теперь администратор.")
-    logger.info(f"Администратор {message.from_user.id} сделал пользователя с ID {user_id} администратором.")
+    
+    success_count = 0
+    fail_count = 0
+    
+    for series in series_list:
+        series_id, url, title, last_updated, added_by, added_at = series
+        topic_id = rutracker.get_topic_id(url)
+        if not topic_id:
+            continue
+        
+        torrent_data = rutracker.download_torrent(topic_id)
+        if torrent_data and qbittorrent.add_torrent(torrent_data, title):
+            success_count += 1
+        else:
+            fail_count += 1
+    
+    bot.send_message(
+        message.chat.id, 
+        f"Загрузка завершена. Успешно: {success_count}, С ошибками: {fail_count}"
+    )
+    logger.info(f"Пользователь {message.from_user.id} запустил принудительную загрузку")
 
-@bot.message_handler(commands=["removeadmin"])
+@bot.message_handler(commands=['force_cl'])
 @admin_required
-def handle_removeadmin(message: Message):
-    """Удалить пользователя из администраторов."""
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(message.chat.id, "Использование: /removeadmin <user_id>")
+def handle_force_cl(message):
+    if qbittorrent.clear_category():
+        bot.send_message(message.chat.id, "Категория 'from telegram' очищена.")
+    else:
+        bot.send_message(
+            message.chat.id,
+            "Не удалось очистить категорию. Проверьте подключение к qBittorrent."
+        )
+    logger.info(f"Пользователь {message.from_user.id} запустил очистку категории")
+
+@bot.message_handler(commands=['add'])
+@admin_required
+def handle_add(message):
+    bot.send_message(
+        message.chat.id,
+        "Отправьте ссылку на страницу раздачи на RuTracker."
+    )
+    user_states[message.from_user.id] = State.WAITING_FOR_URL
+    logger.info(f"Пользователь {message.from_user.id} начал добавление сериала")
+
+@bot.message_handler(commands=['adduser'])
+@admin_required
+def handle_adduser(message):
+    bot.send_message(
+        message.chat.id,
+        "Укажите ID пользователя для добавления."
+    )
+    user_states[message.from_user.id] = State.WAITING_FOR_USER_ID
+    logger.info(f"Пользователь {message.from_user.id} начал добавление пользователя")
+
+@bot.message_handler(commands=['deluser'])
+@admin_required
+def handle_deluser(message):
+    bot.send_message(
+        message.chat.id,
+        "Укажите ID пользователя для удаления."
+    )
+    user_states[message.from_user.id] = State.WAITING_FOR_USER_ID_TO_DELETE
+    logger.info(f"Пользователь {message.from_user.id} начал удаление пользователя")
+
+@bot.message_handler(commands=['addadmin'])
+@admin_required
+def handle_addadmin(message):
+    bot.send_message(
+        message.chat.id,
+        "Укажите ID пользователя для назначения администратором."
+    )
+    user_states[message.from_user.id] = State.WAITING_FOR_ADMIN_ID
+    logger.info(f"Пользователь {message.from_user.id} начал назначение администратора")
+
+@bot.message_handler(func=lambda message: message.text and message.text.startswith('http'))
+@admin_required
+def handle_url(message):
+    url = message.text.strip()
+    
+    # Проверяем, что это URL на RuTracker
+    if not rutracker.get_topic_id(url):
+        bot.send_message(
+            message.chat.id,
+            "Это не похоже на ссылку на раздачу RuTracker. Пожалуйста, проверьте ссылку."
+        )
         return
-    user_id = int(args[1])
-    add_user(user_id, "Неизвестный", is_admin=False)
-    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} больше не администратор.")
-    logger.info(f"Администратор {message.from_user.id} удалил права администратора у пользователя с ID {user_id}.")
-
-@bot.message_handler(commands=["adduser"])
-@admin_required
-def handle_adduser(message: Message):
-    """Добавить пользователя."""
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3:
-        bot.send_message(message.chat.id, "Использование: /adduser <user_id> <username>")
+    
+    # Проверяем, не отслеживается ли уже этот сериал
+    if series_exists(url):
+        bot.send_message(
+            message.chat.id,
+            "Этот сериал уже отслеживается."
+        )
         return
-    user_id = int(args[1])
-    username = args[2]
-    add_user(user_id, username)
-    bot.send_message(message.chat.id, f"Пользователь {username} (ID: {user_id}) добавлен.")
-    logger.info(f"Администратор {message.from_user.id} добавил пользователя {username} (ID: {user_id}).")
-
-@bot.message_handler(commands=["userdel"])
-@admin_required
-def handle_userdel(message: Message):
-    """Удалить пользователя."""
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        bot.send_message(message.chat.id, "Использование: /userdel <user_id>")
+    
+    # Получаем информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.send_message(
+            message.chat.id,
+            "Не удалось получить информацию о странице. Проверьте ссылку и доступ к RuTracker."
+        )
         return
-    user_id = int(args[1])
-    remove_user(user_id)
-    bot.send_message(message.chat.id, f"Пользователь с ID {user_id} удалён.")
-    logger.info(f"Администратор {message.from_user.id} удалил пользователя с ID {user_id}.")
+    
+    # Добавляем сериал в базу данных
+    if add_series(url, page_info["title"], page_info["last_updated"], message.from_user.id):
+        bot.send_message(
+            message.chat.id,
+            f"Сериал \"{page_info['title']}\" добавлен для отслеживания."
+        )
+        
+        # Скачиваем и добавляем торрент
+        torrent_data = rutracker.download_torrent(page_info["topic_id"])
+        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"]):
+            bot.send_message(
+                message.chat.id,
+                "Торрент успешно добавлен в qBittorrent."
+            )
+        else:
+            bot.send_message(
+                message.chat.id,
+                "Не удалось добавить торрент в qBittorrent."
+            )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "Не удалось добавить сериал в базу данных."
+        )
+    
+    logger.info(f"Пользователь {message.from_user.id} добавил сериал: {url}")
 
-@bot.message_handler(commands=["force"])
+@bot.message_handler(func=lambda message: True)
 @admin_required
-def handle_force(message: Message):
-    """Принудительно обновить страницу."""
-    bot.send_message(message.chat.id, "Принудительное обновление страницы...")
-    logger.info(f"Администратор {message.from_user.id} запросил принудительное обновление страницы (/force).")
+def handle_text(message):
+    user_id = message.from_user.id
+    state = user_states.get(user_id, State.IDLE)
+    
+    if state == State.WAITING_FOR_URL:
+        bot.send_message(
+            message.chat.id,
+            "Это не похоже на URL. Пожалуйста, отправьте ссылку на раздачу."
+        )
+        user_states[user_id] = State.IDLE
+    
+    elif state == State.WAITING_FOR_USER_ID:
+        try:
+            new_user_id = int(message.text.strip())
+            if add_user(new_user_id, f"User_{new_user_id}"):
+                bot.send_message(
+                    message.chat.id,
+                    f"Пользователь с ID {new_user_id} добавлен."
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "Не удалось добавить пользователя."
+                )
+        except ValueError:
+            bot.send_message(
+                message.chat.id,
+                "Некорректный ID пользователя. Должно быть число."
+            )
+        user_states[user_id] = State.IDLE
+    
+    elif state == State.WAITING_FOR_USER_ID_TO_DELETE:
+        try:
+            user_id_to_delete = int(message.text.strip())
+            if remove_user(user_id_to_delete):
+                bot.send_message(
+                    message.chat.id,
+                    f"Пользователь с ID {user_id_to_delete} удалён."
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "Не удалось удалить пользователя."
+                )
+        except ValueError:
+            bot.send_message(
+                message.chat.id,
+                "Некорректный ID пользователя. Должно быть число."
+            )
+        user_states[user_id] = State.IDLE
+    
+    elif state == State.WAITING_FOR_ADMIN_ID:
+        try:
+            admin_user_id = int(message.text.strip())
+            # Проверяем, существует ли пользователь
+            user = get_user(admin_user_id)
+            if not user:
+                add_user(admin_user_id, f"Admin_{admin_user_id}", is_admin=True)
+                bot.send_message(
+                    message.chat.id,
+                    f"Создан новый пользователь с ID {admin_user_id} и правами администратора."
+                )
+            elif make_admin(admin_user_id):
+                bot.send_message(
+                    message.chat.id,
+                    f"Пользователь с ID {admin_user_id} теперь администратор."
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "Не удалось назначить пользователя администратором."
+                )
+        except ValueError:
+            bot.send_message(
+                message.chat.id,
+                "Некорректный ID пользователя. Должно быть число."
+            )
+        user_states[user_id] = State.IDLE
+    
+    else:
+        bot.send_message(
+            message.chat.id,
+            "Я не понимаю эту команду. Используйте /help для получения списка команд."
+        )
 
-@bot.message_handler(commands=["clean"])
+@bot.callback_query_handler(func=lambda call: call.data.startswith('series_'))
 @admin_required
-def handle_clean(message: Message):
-    """Очистка директории с файлами."""
-    bot.send_message(message.chat.id, "Очистка директории с файлами...")
-    logger.info(f"Администратор {message.from_user.id} запросил очистку директории (/clean).")
+def handle_series_callback(call):
+    series_id = int(call.data.split('_')[1])
+    series = get_series(series_id=series_id)
+    if not series:
+        bot.send_message(call.message.chat.id, "Сериал не найден.")
+        return
+    
+    series_id, url, title, last_updated, added_by, added_at = series
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
+    markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
+    markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
+    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
+    
+    bot.edit_message_text(
+        f"Серия: {title}\n"
+        f"Последнее обновление: {last_updated}\n"
+        f"Добавлена: {added_at}",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
+@admin_required
+def handle_update_callback(call):
+    series_id = int(call.data.split('_')[1])
+    series = get_series(series_id=series_id)
+    if not series:
+        bot.send_message(call.message.chat.id, "Сериал не найден.")
+        return
+    
+    series_id, url, title, last_updated, added_by, added_at = series
+    
+    # Получаем актуальную информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.answer_callback_query(call.id, "Не удалось получить информацию о странице.")
+        return
+    
+    # Обновляем информацию в базе данных
+    update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
+    
+    # Скачиваем и добавляем торрент
+    torrent_data = rutracker.download_torrent(page_info["topic_id"])
+    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"]):
+        bot.answer_callback_query(call.id, "Сериал обновлен и торрент добавлен в qBittorrent.")
+    else:
+        bot.answer_callback_query(call.id, "Сериал обновлен, но не удалось добавить торрент.")
+    
+    # Обновляем информацию в сообщении
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
+    markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
+    markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
+    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
+    
+    bot.edit_message_text(
+        f"Серия: {page_info['title']}\n"
+        f"Последнее обновление: {page_info['last_updated']}\n"
+        f"Добавлена: {added_at}",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
+@admin_required
+def handle_delete_callback(call):
+    series_id = int(call.data.split('_')[1])
+    if remove_series(series_id=series_id):
+        bot.answer_callback_query(call.id, "Сериал удалён из списка отслеживаемых.")
+        # Возвращаемся к списку
+        handle_list_callback(call)
+    else:
+        bot.answer_callback_query(call.id, "Не удалось удалить сериал.")
+
+@bot.callback_query_handler(func=lambda call: call.data == 'back_to_list')
+@admin_required
+def handle_list_callback(call):
+    series_list = get_all_series()
+    if not series_list:
+        bot.edit_message_text(
+            "Нет отслеживаемых сериалов.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        return
+
+    markup = InlineKeyboardMarkup()
+    for series in series_list:
+        series_id, url, title, last_updated, added_by, added_at = series
+        button_text = f"{title} ({last_updated})"
+        markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
+
+    bot.edit_message_text(
+        "Список отслеживаемых сериалов:",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=markup
+    )
+
