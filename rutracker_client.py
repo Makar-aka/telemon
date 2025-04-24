@@ -92,7 +92,10 @@ class RutrackerClient:
             # Пытаемся найти время последнего обновления в основном посте
             update_info = soup.select_one("p.post-time")
             if update_info:
-                last_updated = update_info.text.strip()
+                time_text = update_info.text.strip()
+                # Удаляем информацию об авторе (обычно после символа '|' или после 'от')
+                time_text = re.split(r'\||\sот\s', time_text)[0].strip()
+                last_updated = time_text
         
             return {
                 "title": title,

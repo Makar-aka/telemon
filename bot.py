@@ -110,7 +110,7 @@ def handle_list(message):
         # Извлекаем текст до первого символа "/"
         title_part = title.split('/')[0].strip()
         
-        button_text = f"{title_part}-{last_updated}"
+        button_text = f"{title_part} - {last_updated}"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
