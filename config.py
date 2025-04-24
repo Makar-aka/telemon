@@ -19,12 +19,19 @@ ALLOWED_USERS = [
     int(user_id.strip()) for user_id in os.getenv("ALLOWED_USERS", "").split(",") if user_id.strip()
 ]
 
+# Главный администратор
+MAIN_ADMIN_ID = os.getenv("MAIN_ADMIN_ID")
+if MAIN_ADMIN_ID is None or not MAIN_ADMIN_ID.isdigit():
+    raise ValueError("Переменная MAIN_ADMIN_ID должна быть задана в .env и быть числом.")
+MAIN_ADMIN_ID = int(MAIN_ADMIN_ID)
+
 # Проверка обязательных переменных
 REQUIRED_VARS = [
     "TELEGRAM_TOKEN", "QBITTORRENT_URL", "QBITTORRENT_USERNAME", "QBITTORRENT_PASSWORD",
-    "RUTRACKER_USERNAME", "RUTRACKER_PASSWORD"
+    "RUTRACKER_USERNAME", "RUTRACKER_PASSWORD", "MAIN_ADMIN_ID"
 ]
 
 for var in REQUIRED_VARS:
     if not os.getenv(var):
         raise EnvironmentError(f"Переменная окружения {var} не задана.")
+
