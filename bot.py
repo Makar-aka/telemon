@@ -1,9 +1,17 @@
+import logging
 from telebot import TeleBot
 from telebot.types import Message
 from config import TELEGRAM_TOKEN, ALLOWED_USERS
 from database import add_torrent, get_all_torrents
 from rutracker import RuTracker
 from qbittorrent import QBittorrent
+
+# Настройка логирования
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 bot = TeleBot(TELEGRAM_TOKEN)
 rutracker = RuTracker()
@@ -12,15 +20,18 @@ qbittorrent = QBittorrent()
 @bot.message_handler(commands=["start"])
 def handle_start(message: Message):
     bot.send_message(message.chat.id, "Привет! Я бот для отслеживания раздач.")
+    logger.info(f"Пользователь {message.from_user.id} начал работу с ботом (/start).")
 
 @bot.message_handler(commands=["list"])
 def handle_list(message: Message):
     torrents = get_all_torrents()
     if not torrents:
         bot.send_message(message.chat.id, "Нет отслеживаемых раздач.")
+        logger.info(f"Пользователь {message.from_user.id} запросил список раздач, но список пуст.")
     else:
         response = "\n".join([f"{t[2]} ({t[1]})" for t in torrents])
         bot.send_message(message.chat.id, response)
+        logger.info(f"Пользователь {message.from_user.id} запросил список раздач. Отправлено {len(torrents)} раздач.")
 
 @bot.message_handler(commands=["help"])
 def handle_help(message: Message):
@@ -36,3 +47,4 @@ def handle_help(message: Message):
     )
     bot.send_message(message.chat.id, help_text)
     logger.info(f"Пользователь {message.from_user.id} запросил справку (/help).")
+
