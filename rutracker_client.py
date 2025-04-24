@@ -1,10 +1,10 @@
 import logging
 import re
 import requests
-from rutracker_api import RutrackerApi
+import pytz
 from bs4 import BeautifulSoup
 from datetime import datetime
-from config import RUTRACKER_USERNAME, RUTRACKER_PASSWORD, PROXY_URL, PROXY_USERNAME, PROXY_PASSWORD
+from config import RUTRACKER_USERNAME, RUTRACKER_PASSWORD, PROXY_URL, PROXY_USERNAME, PROXY_PASSWORD, TIMEZONE
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,6 @@ class RutrackerClient:
         self.username = RUTRACKER_USERNAME
         self.password = RUTRACKER_PASSWORD
         self.session = requests.Session()
-        self.api = RutrackerApi()
         
         # Настройка прокси для requests
         self.proxies = None
@@ -30,10 +29,6 @@ class RutrackerClient:
     def login(self):
         """Авторизация на RuTracker."""
         try:
-            self.api.login(self.username, self.password)
-            logger.info("Успешная авторизация через API")
-            
-            # Дополнительная авторизация через requests для скачивания торрентов
             login_url = "https://rutracker.org/forum/login.php"
             payload = {
                 "login_username": self.username,
@@ -44,10 +39,10 @@ class RutrackerClient:
             response.raise_for_status()
             
             if "bb_session" in self.session.cookies:
-                logger.info("Успешная авторизация через requests")
+                logger.info("Успешная авторизация на RuTracker")
                 return True
             else:
-                logger.error("Не удалось авторизоваться через requests")
+                logger.error("Не удалось авторизоваться на RuTracker")
                 return False
         except Exception as e:
             logger.error(f"Ошибка авторизации: {e}")
@@ -75,26 +70,6 @@ class RutrackerClient:
                 logger.error(f"Не удалось получить ID темы из URL: {url}")
                 return None
 
-            # Получение информации о теме через API
-            topic = self.api.get_topic(topic_id)
-            if not topic:
-                logger.error(f"Не удалось получить информацию о теме через API: {topic_id}")
-                # Попробуем получить через requests
-                return self._get_page_info_via_requests(url, topic_id)
-
-            return {
-                "title": topic.title,
-                "last_updated": topic.updated_at,
-                "topic_id": topic_id
-            }
-        except Exception as e:
-            logger.error(f"Ошибка получения информации о странице {url}: {e}")
-            # Если API не сработал, пробуем через requests
-            return self._get_page_info_via_requests(url, self.get_topic_id(url))
-
-    def _get_page_info_via_requests(self, url, topic_id):
-        """Запасной метод получения информации через requests."""
-        try:
             response = self.session.get(url, proxies=self.proxies, timeout=20)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
@@ -106,7 +81,10 @@ class RutrackerClient:
             title = title.text.strip()
 
             update_info = soup.select_one("p.post-time")
-            last_updated = update_info.text.strip() if update_info else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Используем указанный часовой пояс для получения текущего времени
+            current_time = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
+            last_updated = update_info.text.strip() if update_info else current_time
 
             return {
                 "title": title,
@@ -114,7 +92,7 @@ class RutrackerClient:
                 "topic_id": topic_id
             }
         except Exception as e:
-            logger.error(f"Ошибка получения информации через requests: {e}")
+            logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
 
     def download_torrent(self, topic_id):
@@ -126,16 +104,6 @@ class RutrackerClient:
                     logger.error("Не удалось авторизоваться для скачивания торрента")
                     return None
 
-            # Сначала пробуем через API
-            try:
-                torrent_content = self.api.download_torrent(topic_id)
-                if torrent_content:
-                    logger.info(f"Торрент успешно скачан через API: {topic_id}")
-                    return torrent_content
-            except Exception as e:
-                logger.error(f"Не удалось скачать торрент через API: {e}")
-
-            # Если API не сработал, пробуем через requests
             dl_url = f"https://rutracker.org/forum/dl.php?t={topic_id}"
             response = self.session.get(dl_url, proxies=self.proxies, timeout=30)
             response.raise_for_status()
@@ -152,7 +120,7 @@ class RutrackerClient:
                         return response.content
                 return None
 
-            logger.info(f"Торрент успешно скачан через requests: {topic_id}")
+            logger.info(f"Торрент успешно скачан: {topic_id}")
             return response.content
         except Exception as e:
             logger.error(f"Ошибка скачивания торрента {topic_id}: {e}")
