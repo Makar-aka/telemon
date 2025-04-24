@@ -11,13 +11,13 @@ qbittorrent = QBittorrent()
 
 @bot.message_handler(commands=["start"])
 def handle_start(message: Message):
-    bot.send_message(message.chat.id, "Привет! Я бот для отслеживания раздач.")
+    bot.send_message(message.chat.id, "РџСЂРёРІРµС‚! РЇ Р±РѕС‚ РґР»СЏ РѕС‚СЃР»РµР¶РёРІР°РЅРёСЏ СЂР°Р·РґР°С‡.")
 
 @bot.message_handler(commands=["list"])
 def handle_list(message: Message):
     torrents = get_all_torrents()
     if not torrents:
-        bot.send_message(message.chat.id, "Нет отслеживаемых раздач.")
+        bot.send_message(message.chat.id, "РќРµС‚ РѕС‚СЃР»РµР¶РёРІР°РµРјС‹С… СЂР°Р·РґР°С‡.")
     else:
         response = "\n".join([f"{t[2]} ({t[1]})" for t in torrents])
         bot.send_message(message.chat.id, response)
