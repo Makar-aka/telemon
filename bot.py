@@ -6,6 +6,10 @@ from database import add_user, remove_user, is_admin, get_all_users, add_torrent
 from rutracker import RuTracker
 from qbittorrent import QBittorrent
 
+# Добавляем главного администратора при запуске
+add_user(MAIN_ADMIN_ID, "Главный администратор", is_admin=True)
+logger.info(f"Главный администратор с ID {MAIN_ADMIN_ID} добавлен в базу данных.")
+
 # Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
