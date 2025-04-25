@@ -206,7 +206,7 @@ def add_series(url: str, title: str, created: str, edited: str, last_updated: st
     """Добавить сериал в базу данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    now = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     try:
         cursor.execute(
@@ -224,7 +224,6 @@ def add_series(url: str, title: str, created: str, edited: str, last_updated: st
         return None
     finally:
         conn.close()
-
 
 def remove_series(series_id: int = None, url: str = None):
     """Удалить сериал из базы данных."""
@@ -272,8 +271,6 @@ def update_series(series_id: int, title: str = None, created: str = None, edited
     finally:
         conn.close()
 
-
-
 def get_series(series_id: int = None, url: str = None):
     """Получить информацию о сериале."""
     if not series_id and not url:
@@ -308,7 +305,6 @@ def get_all_series():
         return []
     finally:
         conn.close()
-
 
 def series_exists(url: str) -> bool:
     """Проверить, существует ли сериал в базе данных."""

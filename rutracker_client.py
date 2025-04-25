@@ -89,22 +89,29 @@ class RutrackerClient:
             edited = ""
             if post_time:
                 time_text = post_time.text.strip()
+                
+                # Извлекаем время редактирования, если оно есть
                 if "ред." in time_text:
-                    edited = time_text.split("ред.")[1].strip()
-                created = time_text.split(",")[0].strip()
+                    edited_match = re.search(r'ред\.\s*([\d-]+\s[\d:]+)', time_text)
+                    if edited_match:
+                        edited = edited_match.group(1).strip()
+                
+                # Извлекаем время создания
+                created_match = re.search(r'([\d-]+\s[\d:]+)', time_text)
+                if created_match:
+                    created = created_match.group(1).strip()
 
             # Возвращаем данные
             return {
                 "title": title,
                 "created": created,
                 "edited": edited,
-                "last_updated": edited,  # Добавляем last_updated для совместимости
+                "last_updated": edited,  # Для совместимости
                 "topic_id": topic_id
             }
         except Exception as e:
             logger.error(f"Ошибка получения информации о странице {url}: {e}")
             return None
-
 
     def download_torrent(self, topic_id):
         """Скачать торрент-файл."""
