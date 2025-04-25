@@ -267,19 +267,18 @@ def update_series(series_id: int, title: str = None, last_updated: str = None):
     
     try:
         if title:
-            # Очищаем название от имени создателя/обновившего
-            clean_title_text = clean_title(title)
-            cursor.execute("UPDATE series SET title = ? WHERE id = ?", (clean_title_text, series_id))
+            cursor.execute("UPDATE series SET title = ? WHERE id = ?", (title, series_id))
         if last_updated:
             cursor.execute("UPDATE series SET last_updated = ? WHERE id = ?", (last_updated, series_id))
         conn.commit()
-        logger.info(f"Сериал с ID {series_id} обновлён.")
+        logger.info(f"Сериал с ID {series_id} обновлён. Новое время: {last_updated}")
         return True
     except sqlite3.Error as e:
         logger.error(f"Ошибка обновления сериала: {e}")
         return False
     finally:
         conn.close()
+
 
 def get_series(series_id: int = None, url: str = None):
     """Получить информацию о сериале."""

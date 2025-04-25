@@ -31,12 +31,15 @@ def check_series_updates():
             # Проверяем каждый сериал на обновления
             for series in series_list:
                 series_id, url, title, last_updated, added_by, added_at = series
+                logger.info(f"Проверка сериала: {title}, последнее обновление: {last_updated}")
                 
                 # Получаем актуальную информацию о странице
                 page_info = rutracker.get_page_info(url)
                 if not page_info:
                     logger.error(f"Не удалось получить информацию о странице {url}")
                     continue
+                
+                logger.info(f"Получено обновление: {page_info['last_updated']} для {title}")
                 
                 # Проверяем, изменилось ли время обновления
                 if page_info["last_updated"] != last_updated:
@@ -66,6 +69,7 @@ def check_series_updates():
         
         # Ждем до следующей проверки
         time.sleep(CHECK_INTERVAL)
+
 
 def main():
     """Основная функция."""
