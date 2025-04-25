@@ -107,12 +107,14 @@ def handle_list(message):
 
     markup = InlineKeyboardMarkup()
     for series in series_list:
-        series_id, url, title, last_updated, added_by, added_at = series
+        # Учитываем все 8 значений, возвращаемых из базы
+        series_id, url, title, created, edited, last_updated, added_by, added_at = series
         
         # Извлекаем текст до первого символа "/"
         title_part = title.split('/')[0].strip()
         
-        button_text = f"{title_part} - {last_updated}"
+        # Используем поле `edited` для отображения времени последнего редактирования
+        button_text = f"{title_part} - {edited}"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
