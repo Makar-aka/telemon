@@ -93,10 +93,12 @@ class RutrackerClient:
                     edited = time_text.split("ред.")[1].strip()
                 created = time_text.split(",")[0].strip()
 
+            # Возвращаем данные
             return {
                 "title": title,
                 "created": created,
                 "edited": edited,
+                "last_updated": edited,  # Добавляем last_updated для совместимости
                 "topic_id": topic_id
             }
         except Exception as e:

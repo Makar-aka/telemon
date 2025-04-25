@@ -257,7 +257,14 @@ def handle_url(message):
         return
     
     # Добавляем сериал в базу данных
-    series_id = add_series(url, page_info["title"], page_info["last_updated"], message.from_user.id)
+    series_id = add_series(
+        url,
+        page_info["title"],
+        page_info["created"],
+        page_info["edited"],
+        page_info["last_updated"],
+        message.from_user.id
+    )
     if series_id:
         bot.send_message(
             message.chat.id,
