@@ -30,8 +30,8 @@ def check_series_updates():
             
             # Проверяем каждый сериал на обновления
             for series in series_list:
-                series_id, url, title, last_updated, added_by, added_at = series
-                logger.info(f"Проверка сериала: {title}, последнее обновление: {last_updated}")
+                series_id, url, title, created, edited, last_updated, added_by, added_at = series
+                logger.info(f"Проверка сериала: {title}, последнее редактирование: {edited}")
                 
                 # Получаем актуальную информацию о странице
                 page_info = rutracker.get_page_info(url)
@@ -39,10 +39,10 @@ def check_series_updates():
                     logger.error(f"Не удалось получить информацию о странице {url}")
                     continue
                 
-                logger.info(f"Получено обновление: {page_info['last_updated']} для {title}")
+                logger.info(f"Получено обновление: {page_info['edited']} для {title}")
                 
-                # Проверяем, изменилось ли время обновления
-                if page_info["last_updated"] != last_updated:
+                # Проверяем, изменилось ли время редактирования
+                if page_info["edited"] != edited:
                     logger.info(f"Обнаружено обновление для {title}")
                     
                     # Удаляем старую загрузку в qBittorrent
@@ -51,7 +51,7 @@ def check_series_updates():
                         logger.warning(f"Не удалось удалить торрент с тегом {tag} для {title}")
                     
                     # Обновляем информацию в базе данных
-                    update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
+                    update_series(series_id, title=page_info["title"], created=page_info["created"], edited=page_info["edited"], last_updated=page_info["edited"])
                     
                     # Скачиваем и добавляем новый торрент
                     torrent_data = rutracker.download_torrent(page_info["topic_id"])

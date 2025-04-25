@@ -103,6 +103,8 @@ def handle_list(message):
         logger.info(f"Пользователь {message.from_user.id} запросил список сериалов (пусто)")
         return
 
+    logger.info(f"Список сериалов: {series_list}")  # Логируем данные из базы
+
     markup = InlineKeyboardMarkup()
     for series in series_list:
         series_id, url, title, last_updated, added_by, added_at = series

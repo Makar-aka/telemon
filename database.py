@@ -47,6 +47,8 @@ def init_db():
             id INTEGER PRIMARY KEY,
             url TEXT UNIQUE,
             title TEXT,
+            created TEXT,
+            edited TEXT,
             last_updated TEXT,
             added_by INTEGER,
             added_at TEXT,
@@ -200,42 +202,29 @@ def has_admins():
     finally:
         conn.close()
 
-def add_series(url: str, title: str, last_updated: str, added_by: int):
+def add_series(url: str, title: str, created: str, edited: str, last_updated: str, added_by: int):
     """Добавить сериал в базу данных."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     now = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
     
-    # Очищаем название от имени создателя/обновившего
-    clean_title_text = clean_title(title)
-    
     try:
-        # Ищем свободный ID
-        free_id = get_min_free_id()
-        
-        if free_id is not None:
-            # Используем найденный свободный ID
-            cursor.execute(
-                "INSERT OR REPLACE INTO series (id, url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (free_id, url, clean_title_text, last_updated, added_by, now)
-            )
-            series_id = free_id
-        else:
-            # Если поиск свободного ID не удался, используем автоинкремент
-            cursor.execute(
-                "INSERT OR REPLACE INTO series (url, title, last_updated, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
-                (url, clean_title_text, last_updated, added_by, now)
-            )
-            series_id = cursor.lastrowid
-            
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO series (url, title, created, edited, last_updated, added_by, added_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (url, title, created, edited, last_updated, added_by, now)
+        )
         conn.commit()
-        logger.info(f"Сериал {clean_title_text} (URL: {url}) добавлен в базу данных с ID {series_id}.")
-        return series_id
+        logger.info(f"Сериал {title} (URL: {url}) добавлен в базу данных.")
+        return cursor.lastrowid
     except sqlite3.Error as e:
         logger.error(f"Ошибка добавления сериала: {e}")
         return None
     finally:
         conn.close()
+
 
 def remove_series(series_id: int = None, url: str = None):
     """Удалить сериал из базы данных."""
@@ -260,7 +249,7 @@ def remove_series(series_id: int = None, url: str = None):
     finally:
         conn.close()
 
-def update_series(series_id: int, title: str = None, last_updated: str = None):
+def update_series(series_id: int, title: str = None, created: str = None, edited: str = None, last_updated: str = None):
     """Обновить информацию о сериале."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -268,16 +257,21 @@ def update_series(series_id: int, title: str = None, last_updated: str = None):
     try:
         if title:
             cursor.execute("UPDATE series SET title = ? WHERE id = ?", (title, series_id))
+        if created:
+            cursor.execute("UPDATE series SET created = ? WHERE id = ?", (created, series_id))
+        if edited:
+            cursor.execute("UPDATE series SET edited = ? WHERE id = ?", (edited, series_id))
         if last_updated:
             cursor.execute("UPDATE series SET last_updated = ? WHERE id = ?", (last_updated, series_id))
         conn.commit()
-        logger.info(f"Сериал с ID {series_id} обновлён. Новое время: {last_updated}")
+        logger.info(f"Сериал с ID {series_id} обновлён.")
         return True
     except sqlite3.Error as e:
         logger.error(f"Ошибка обновления сериала: {e}")
         return False
     finally:
         conn.close()
+
 
 
 def get_series(series_id: int = None, url: str = None):
@@ -307,13 +301,14 @@ def get_all_series():
     cursor = conn.cursor()
     
     try:
-        cursor.execute("SELECT id, url, title, last_updated, added_by, added_at FROM series")
+        cursor.execute("SELECT id, url, title, created, edited, last_updated, added_by, added_at FROM series")
         return cursor.fetchall()
     except sqlite3.Error as e:
         logger.error(f"Ошибка получения списка сериалов: {e}")
         return []
     finally:
         conn.close()
+
 
 def series_exists(url: str) -> bool:
     """Проверить, существует ли сериал в базе данных."""

@@ -83,20 +83,20 @@ class RutrackerClient:
             full_title = title_element.text.strip()
             title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
 
-            # Получаем время обновления страницы
-            update_info = soup.select_one("p.post-time")
-            if update_info:
-                time_text = update_info.text.strip()
-                # Удаляем лишнюю информацию, например, имя автора
-                time_text = re.split(r'\||\sот\s', time_text)[0].strip()
-                last_updated = time_text
-            else:
-                # Если время не найдено, используем текущее время
-                last_updated = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d.%m.%Y %H:%M")
+            # Получаем время создания и редактирования
+            post_time = soup.select_one("p.post-time")
+            created = ""
+            edited = ""
+            if post_time:
+                time_text = post_time.text.strip()
+                if "ред." in time_text:
+                    edited = time_text.split("ред.")[1].strip()
+                created = time_text.split(",")[0].strip()
 
             return {
                 "title": title,
-                "last_updated": last_updated,
+                "created": created,
+                "edited": edited,
                 "topic_id": topic_id
             }
         except Exception as e:
