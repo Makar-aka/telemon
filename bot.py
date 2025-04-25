@@ -195,3 +195,71 @@ def handle_list_callback(call):
         message_id=call.message.message_id,
         reply_markup=markup
     )
+
+@bot.message_handler(func=lambda message: message.text and message.text.startswith('http'))
+@admin_required
+def handle_url(message):
+    url = message.text.strip()
+    
+    # Проверяем, что это URL на RuTracker
+    if not rutracker.get_topic_id(url):
+        bot.send_message(
+            message.chat.id,
+            "Это не похоже на ссылку на раздачу RuTracker. Пожалуйста, проверьте ссылку."
+        )
+        return
+    
+    # Проверяем, не отслеживается ли уже этот сериал
+    if series_exists(url):
+        bot.send_message(
+            message.chat.id,
+            "Этот сериал уже отслеживается."
+        )
+        return
+    
+    # Получаем информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info or not page_info.get("title") or not page_info.get("topic_id"):
+        bot.send_message(
+            message.chat.id,
+            "Не удалось получить информацию о странице. Проверьте ссылку."
+        )
+        return
+    
+    # Добавляем сериал в базу данных
+    series_id = add_series(
+        url,
+        page_info["title"],
+        page_info["created"],
+        page_info["edited"],
+        page_info["last_updated"],
+        message.from_user.id
+    )
+    if series_id:
+        bot.send_message(
+            message.chat.id,
+            f"Сериал \"{page_info['title']}\" добавлен для отслеживания."
+        )
+        
+        # Создаем тег в формате "id_XXX"
+        tag = f"id_{series_id}"
+        
+        # Скачиваем и добавляем торрент
+        torrent_data = rutracker.download_torrent(page_info["topic_id"])
+        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
+            bot.send_message(
+                message.chat.id,
+                "Торрент успешно добавлен в qBittorrent."
+            )
+        else:
+            bot.send_message(
+                message.chat.id,
+                "Не удалось добавить торрент в qBittorrent."
+            )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "Не удалось добавить сериал в базу данных."
+        )
+    
+    logger.info(f"Пользователь {message.from_user.id} добавил сериал: {url}")

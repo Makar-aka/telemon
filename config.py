@@ -23,4 +23,4 @@ REQUIRED_VARS = [
 
 for var in REQUIRED_VARS:
     if not os.getenv(var):
-        raise EnvironmentError(f"Переменная окружения {var} не задана.")
+        raise EnvironmentError(f"Переменная окружения {var} не задана. Проверьте файл .env.")
