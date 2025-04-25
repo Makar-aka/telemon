@@ -95,11 +95,11 @@ class QBittorrentClient:
     def delete_torrent_by_tag(self, tag, delete_files=False):
         """
         Удаляет все торренты с указанным тегом.
-        
+    
         Args:
             tag: Тег для поиска торрентов
             delete_files: Удалять ли файлы вместе с торрентом
-        
+    
         Returns:
             bool: True если хотя бы один торрент был удален, False в противном случае
         """
@@ -107,20 +107,21 @@ class QBittorrentClient:
             if self.client is None:
                 if not self.connect():
                     return False
-            
+        
             # Получаем список торрентов с указанным тегом
             torrents = self.client.torrents_info(tag=tag)
             if not torrents:
                 logger.info(f"Торренты с тегом '{tag}' не найдены")
                 return False
-            
+        
             # Удаляем торренты
             for torrent in torrents:
                 logger.info(f"Удаляю торрент: {torrent.name}")
                 self.client.torrents_delete(delete_files=delete_files, hashes=torrent.hash)
-            
+        
             logger.info(f"Торрент(ы) с тегом '{tag}' успешно удалены")
             return True
         except Exception as e:
             logger.error(f"Ошибка удаления торрентов по тегу: {e}")
             return False
+

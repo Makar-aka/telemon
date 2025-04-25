@@ -42,12 +42,17 @@ def check_series_updates():
                 if page_info["last_updated"] != last_updated:
                     logger.info(f"Обнаружено обновление для {title}")
                     
+                    # Удаляем старую загрузку в qBittorrent
+                    tag = f"id_{series_id}"
+                    if not qbittorrent.delete_torrent_by_tag(tag, delete_files=False):
+                        logger.warning(f"Не удалось удалить торрент с тегом {tag} для {title}")
+                    
                     # Обновляем информацию в базе данных
                     update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
                     
-                    # Скачиваем и добавляем торрент
+                    # Скачиваем и добавляем новый торрент
                     torrent_data = rutracker.download_torrent(page_info["topic_id"])
-                    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"]):
+                    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
                         logger.info(f"Торрент для {title} добавлен в qBittorrent")
                     else:
                         logger.error(f"Не удалось добавить торрент для {title}")

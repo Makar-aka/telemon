@@ -139,6 +139,10 @@ def handle_force_dl(message):
         # Тег для идентификации торрента
         tag = f"id_{series_id}"
         
+        # Удаляем старую загрузку
+        qbittorrent.delete_torrent_by_tag(tag, delete_files=False)
+        
+        # Скачиваем и добавляем новый торрент
         torrent_data = rutracker.download_torrent(topic_id)
         if torrent_data and qbittorrent.add_torrent(torrent_data, title, tags=tag):
             success_count += 1
@@ -147,10 +151,8 @@ def handle_force_dl(message):
     
     bot.send_message(
         message.chat.id, 
-        f"Загрузка завершена. Успешно: {success_count}, С ошибками: {fail_count}"
+        f"Принудительная загрузка завершена. Успешно: {success_count}, С ошибками: {fail_count}"
     )
-    logger.info(f"Пользователь {message.from_user.id} запустил принудительную загрузку")
-
 
 @bot.message_handler(commands=['force_cl'])
 @admin_required
@@ -371,9 +373,9 @@ def handle_text(message):
             "Я не понимаю эту команду. Используйте /help для получения списка команд."
         )
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('series_'))
+@bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
 @admin_required
-def handle_series_callback(call):
+def handle_update_callback(call):
     series_id = int(call.data.split('_')[1])
     series = get_series(series_id=series_id)
     if not series:
@@ -382,20 +384,28 @@ def handle_series_callback(call):
     
     series_id, url, title, last_updated, added_by, added_at = series
     
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
-    markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
-    markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
-    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
+    # Тег для идентификации торрента
+    tag = f"id_{series_id}"
     
-    bot.edit_message_text(
-        f"Серия: {title}\n"
-        f"Последнее обновление: {last_updated}\n"
-        f"Добавлена: {added_at}",
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=markup
-    )
+    # Получаем актуальную информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.answer_callback_query(call.id, "Не удалось получить информацию о странице.")
+        return
+    
+    # Удаляем старую загрузку в qBittorrent
+    if not qbittorrent.delete_torrent_by_tag(tag, delete_files=False):
+        bot.answer_callback_query(call.id, "Не удалось удалить старый торрент.")
+        return
+    
+    # Скачиваем и добавляем новый торрент
+    torrent_data = rutracker.download_torrent(page_info["topic_id"])
+    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
+        # Обновляем информацию в базе данных
+        update_series(series_id, title=page_info["title"], last_updated=page_info["last_updated"])
+        bot.answer_callback_query(call.id, "Сериал обновлен и торрент добавлен в qBittorrent.")
+    else:
+        bot.answer_callback_query(call.id, "Не удалось обновить сериал.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
 @admin_required
