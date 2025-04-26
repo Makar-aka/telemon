@@ -140,6 +140,62 @@ def handle_series_callback(call):
         reply_markup=markup
     )
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
+@admin_required
+def handle_update_callback(call):
+    series_id = int(call.data.split('_')[1])
+    logger.info(f"Обновление сериала с ID: {series_id}")
+    
+    # Получаем данные о сериале из базы
+    series = get_series(series_id=series_id)
+    if not series:
+        bot.send_message(call.message.chat.id, "Сериал не найден.")
+        logger.error(f"Сериал с ID {series_id} не найден в базе данных.")
+        return
+    
+    series_id, url, title, created, edited, last_updated, added_by, added_at = series
+    logger.info(f"Данные сериала: {series}")
+    
+    # Тег для идентификации торрента
+    tag = f"id_{series_id}"
+    
+    # Получаем актуальную информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.answer_callback_query(call.id, "Не удалось получить информацию о странице.")
+        logger.error(f"Не удалось получить информацию о странице: {url}")
+        return
+    
+    logger.info(f"Актуальная информация о странице: {page_info}")
+    
+    # Удаляем старую загрузку в qBittorrent
+    if not qbittorrent.delete_torrent_by_tag(tag, delete_files=False):
+        bot.answer_callback_query(call.id, "Не удалось удалить старый торрент.")
+        logger.error(f"Не удалось удалить торрент с тегом {tag}")
+        return
+    
+    # Скачиваем и добавляем новый торрент
+    torrent_data = rutracker.download_torrent(page_info["topic_id"])
+    if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
+        # Обновляем информацию в базе данных
+        update_result = update_series(
+            series_id,
+            title=page_info["title"],
+            created=page_info["created"],
+            edited=page_info["edited"],
+            last_updated=page_info["edited"]
+        )
+        if update_result:
+            bot.answer_callback_query(call.id, "Сериал обновлен и торрент добавлен в qBittorrent.")
+            logger.info(f"Сериал с ID {series_id} успешно обновлен.")
+        else:
+            bot.answer_callback_query(call.id, "Не удалось обновить данные в базе.")
+            logger.error(f"Не удалось обновить данные в базе для сериала с ID {series_id}.")
+    else:
+        bot.answer_callback_query(call.id, "Не удалось обновить сериал.")
+        logger.error(f"Не удалось добавить новый торрент для сериала с ID {series_id}.")
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
 @admin_required
 def handle_delete_callback(call):
