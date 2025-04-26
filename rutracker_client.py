@@ -1,10 +1,8 @@
 import logging
 import re
 import requests
-import pytz
 from bs4 import BeautifulSoup
-from datetime import datetime
-from config import RUTRACKER_USERNAME, RUTRACKER_PASSWORD, PROXY_URL, PROXY_USERNAME, PROXY_PASSWORD, TIMEZONE
+from config import RUTRACKER_USERNAME, RUTRACKER_PASSWORD, PROXY_URL, PROXY_USERNAME, PROXY_PASSWORD
 
 logger = logging.getLogger(__name__)
 
@@ -84,36 +82,17 @@ class RutrackerClient:
             full_title = title_element.text.strip()
             title = full_title.split('/')[0].strip() if '/' in full_title else full_title.strip()
 
-            # Получаем время создания и редактирования
+            # Получаем строку времени
             post_time = soup.select_one("p.post-time")
-            created = ""
-            edited = ""
-            if post_time:
-                time_text = post_time.text.strip()
-                
-                # Извлекаем время редактирования, если оно есть
-                if "ред." in time_text:
-                    edited_match = re.search(r'ред\.\s*([\d-]+\s[\d:]+)', time_text)
-                    if edited_match:
-                        edited = edited_match.group(1).strip()
-                
-                # Извлекаем время создания
-                created_match = re.search(r'([\d-]+\s[\d:]+)', time_text)
-                if created_match:
-                    created = created_match.group(1).strip()
-
-            # Устанавливаем last_updated
-            last_updated = edited if edited else created
+            time_text = post_time.text.strip() if post_time else "Неизвестно"
 
             # Логируем данные
-            logger.info(f"Заголовок: {title}, Создано: {created}, Редактировано: {edited}, ID темы: {topic_id}")
+            logger.info(f"Заголовок: {title}, Время: {time_text}, ID темы: {topic_id}")
 
             # Возвращаем данные
             return {
                 "title": title,
-                "created": created,
-                "edited": edited,
-                "last_updated": last_updated,
+                "time_text": time_text,  # Сохраняем строку времени как есть
                 "topic_id": topic_id
             }
         except Exception as e:
