@@ -86,23 +86,13 @@ class RutrackerClient:
             post_time = soup.select_one("p.post-time")
             time_text = post_time.text.strip() if post_time else "Неизвестно"
 
-            # Извлекаем время редактирования, если оно есть
-            edited = None
-            if "ред." in time_text:
-                edited_match = re.search(r'ред\.\s*([\d-]+\s[\d:]+)', time_text)
-                if edited_match:
-                    edited = edited_match.group(1).strip()
-                else:
-                    logger.warning(f"Не удалось извлечь время редактирования из: {time_text}")
-
             # Логируем данные
-            logger.info(f"Заголовок: {title}, Время: {time_text}, Редактировано: {edited}, ID темы: {topic_id}")
+            logger.info(f"Заголовок: {title}, Время: {time_text}, ID темы: {topic_id}")
 
             # Возвращаем данные
             return {
                 "title": title,
                 "time_text": time_text,  # Сохраняем строку времени как есть
-                "edited": edited,        # Добавляем ключ 'edited', даже если он None
                 "topic_id": topic_id
             }
         except Exception as e:
