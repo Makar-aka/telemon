@@ -1,7 +1,7 @@
 import logging
 from telebot import TeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import TELEGRAM_TOKEN
+from config import TELEGRAM_TOKEN, PROXY_URL
 from database import (
     init_db, add_user, get_user, remove_user, is_admin, make_admin, get_all_users, has_admins,
     add_series, remove_series, update_series, get_series, get_all_series, series_exists
@@ -89,6 +89,8 @@ def handle_help(message):
         "/adduser - Добавить пользователя\n"
         "/deluser - Удалить пользователя\n"
         "/addadmin - Сделать пользователя администратором\n"
+        "/status - Проверить статус подключения\n"
+        "/force_chk - Принудительно проверить обновления для всех ссылок\n"
     )
     bot.send_message(message.chat.id, help_text)
     logger.info(f"Пользователь {message.from_user.id} запросил справку")
@@ -102,18 +104,10 @@ def handle_list(message):
         logger.info(f"Пользователь {message.from_user.id} запросил список сериалов (пусто)")
         return
 
-    logger.info(f"Список сериалов: {series_list}")  # Логируем данные из базы
-
     markup = InlineKeyboardMarkup()
     for series in series_list:
-        # Учитываем все 8 значений, возвращаемых из базы
         series_id, url, title, created, edited, last_updated, added_by, added_at = series
-        
-        # Извлекаем текст до первого символа "/"
-        title_part = title.split('/')[0].strip()
-        
-        # Используем поле `edited` для отображения времени последнего редактирования
-        button_text = f"{title_part} - {edited}"
+        button_text = f"{title} (Обновлено: {last_updated})"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
@@ -182,11 +176,7 @@ def handle_list_callback(call):
     markup = InlineKeyboardMarkup()
     for series in series_list:
         series_id, url, title, created, edited, last_updated, added_by, added_at = series
-        
-        # Извлекаем текст до первого символа "/"
-        title_part = title.split('/')[0].strip()
-        
-        button_text = f"{title_part} - {edited}"
+        button_text = f"{title} (Обновлено: {last_updated})"
         markup.add(InlineKeyboardButton(button_text, callback_data=f"series_{series_id}"))
 
     bot.edit_message_text(
@@ -196,70 +186,59 @@ def handle_list_callback(call):
         reply_markup=markup
     )
 
-@bot.message_handler(func=lambda message: message.text and message.text.startswith('http'))
+@bot.message_handler(commands=['status'])
 @admin_required
-def handle_url(message):
-    url = message.text.strip()
+def handle_status(message):
+    # Проверяем подключение к RuTracker
+    rutracker_status = "Успешно" if rutracker.check_connection() else "Ошибка"
     
-    # Проверяем, что это URL на RuTracker
-    if not rutracker.get_topic_id(url):
-        bot.send_message(
-            message.chat.id,
-            "Это не похоже на ссылку на раздачу RuTracker. Пожалуйста, проверьте ссылку."
-        )
-        return
+    # Проверяем подключение к qBittorrent
+    qbittorrent_status = "Успешно" if qbittorrent.connect() else "Ошибка"
     
-    # Проверяем, не отслеживается ли уже этот сериал
-    if series_exists(url):
-        bot.send_message(
-            message.chat.id,
-            "Этот сериал уже отслеживается."
-        )
-        return
+    # Проверяем прокси
+    proxy_status = "Настроен" if PROXY_URL else "Не настроен"
     
-    # Получаем информацию о странице
-    page_info = rutracker.get_page_info(url)
-    if not page_info or not page_info.get("title") or not page_info.get("topic_id"):
-        bot.send_message(
-            message.chat.id,
-            "Не удалось получить информацию о странице. Проверьте ссылку."
-        )
-        return
-    
-    # Добавляем сериал в базу данных
-    series_id = add_series(
-        url,
-        page_info["title"],
-        page_info["created"],
-        page_info["edited"],
-        page_info["last_updated"],
-        message.from_user.id
+    # Формируем сообщение
+    status_message = (
+        f"Статус подключения:\n"
+        f"RuTracker: {rutracker_status}\n"
+        f"Прокси: {proxy_status}\n"
+        f"qBittorrent: {qbittorrent_status}"
     )
-    if series_id:
-        bot.send_message(
-            message.chat.id,
-            f"Сериал \"{page_info['title']}\" добавлен для отслеживания."
-        )
-        
-        # Создаем тег в формате "id_XXX"
-        tag = f"id_{series_id}"
-        
-        # Скачиваем и добавляем торрент
-        torrent_data = rutracker.download_torrent(page_info["topic_id"])
-        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
-            bot.send_message(
-                message.chat.id,
-                "Торрент успешно добавлен в qBittorrent."
-            )
-        else:
-            bot.send_message(
-                message.chat.id,
-                "Не удалось добавить торрент в qBittorrent."
-            )
-    else:
-        bot.send_message(
-            message.chat.id,
-            "Не удалось добавить сериал в базу данных."
-        )
+    bot.send_message(message.chat.id, status_message)
+
+@bot.message_handler(commands=['force_chk'])
+@admin_required
+def handle_force_chk(message):
+    bot.send_message(message.chat.id, "Начинаю проверку всех ссылок на обновления...")
     
-    logger.info(f"Пользователь {message.from_user.id} добавил сериал: {url}")
+    series_list = get_all_series()
+    if not series_list:
+        bot.send_message(message.chat.id, "Нет отслеживаемых сериалов.")
+        return
+    
+    for series in series_list:
+        series_id, url, title, created, edited, last_updated, added_by, added_at = series
+        
+        # Получаем актуальную информацию о странице
+        page_info = rutracker.get_page_info(url)
+        if not page_info:
+            bot.send_message(message.chat.id, f"Не удалось получить информацию о странице: {title}")
+            continue
+        
+        # Проверяем, изменилось ли время редактирования
+        if page_info["edited"] != edited:
+            # Удаляем старую загрузку в qBittorrent
+            tag = f"id_{series_id}"
+            qbittorrent.delete_torrent_by_tag(tag, delete_files=False)
+            
+            # Обновляем информацию в базе данных
+            update_series(series_id, title=page_info["title"], created=page_info["created"], edited=page_info["edited"], last_updated=page_info["edited"])
+            
+            # Скачиваем и добавляем новый торрент
+            torrent_data = rutracker.download_torrent(page_info["topic_id"])
+            if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
+                bot.send_message(message.chat.id, f"Сериал обновлен: {title}")
+            else:
+                bot.send_message(message.chat.id, f"Не удалось обновить сериал: {title}")
+    bot.send_message(message.chat.id, "Проверка завершена.")
