@@ -53,6 +53,7 @@ class RutrackerClient:
         match = re.search(r't=(\d+)', url)
         if match:
             return match.group(1)
+        logger.error(f"Не удалось извлечь ID темы из URL: {url}")
         return None
 
     def get_page_info(self, url):
@@ -101,12 +102,18 @@ class RutrackerClient:
                 if created_match:
                     created = created_match.group(1).strip()
 
+            # Устанавливаем last_updated
+            last_updated = edited if edited else created
+
+            # Логируем данные
+            logger.info(f"Заголовок: {title}, Создано: {created}, Редактировано: {edited}, ID темы: {topic_id}")
+
             # Возвращаем данные
             return {
                 "title": title,
                 "created": created,
                 "edited": edited,
-                "last_updated": edited,  # Для совместимости
+                "last_updated": last_updated,
                 "topic_id": topic_id
             }
         except Exception as e:
