@@ -34,12 +34,14 @@ def handle_start_help(message):
         "/del - Удалить сериал\n"
         "/status - Проверить статус подключения\n"
         "/force_chk - Принудительная проверка обновлений\n"
+        "/force_del - Удалить все торренты из qBittorrent\n"
         "/users - Просмотр списка пользователей\n" 
         "/adduser - Добавить пользователя\n"
         "/deluser - Удалить пользователя\n"
         "/addadmin - Сделать пользователя администратором"
     )
     user_states[message.from_user.id] = State.IDLE
+
 
 @bot.message_handler(commands=['list'])
 def handle_list(message):
@@ -74,6 +76,17 @@ def handle_status(message):
         f"qBittorrent: {'Успешно' if qbittorrent.client else 'Ошибка'}"
     )
     bot.send_message(message.chat.id, status_message)
+
+@bot.message_handler(commands=['force_del'])
+def handle_force_del(message):
+    """Удаляет все торренты из категории 'from telegram' в qBittorrent."""
+    bot.send_message(message.chat.id, "Удаление всех торрентов из категории 'from telegram'...")
+    
+    if qbittorrent.clear_category():
+        bot.send_message(message.chat.id, "Все торренты успешно удалены из qBittorrent.")
+    else:
+        bot.send_message(message.chat.id, "Не удалось удалить торренты из qBittorrent.")
+
 
 @bot.message_handler(commands=['force_chk'])
 def handle_force_chk(message):

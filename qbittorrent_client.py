@@ -75,22 +75,23 @@ class QBittorrentClient:
             if self.client is None:
                 if not self.connect():
                     return False
-            
+        
             # Получаем список торрентов в категории
             torrents = self.client.torrents_info(category="from telegram")
             if not torrents:
                 logger.info("Категория 'from telegram' пуста")
                 return True
-            
+        
             # Удаляем все торренты из категории
             for torrent in torrents:
                 self.client.torrents_delete(delete_files=False, hashes=torrent.hash)
-            
+        
             logger.info("Категория 'from telegram' очищена")
             return True
         except Exception as e:
             logger.error(f"Ошибка очистки категории: {e}")
             return False
+
 
     def delete_torrent_by_tag(self, tag, delete_files=False):
         """
