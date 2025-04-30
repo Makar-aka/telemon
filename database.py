@@ -88,3 +88,21 @@ def get_all_users():
     """Получить список всех пользователей."""
     query = "SELECT user_id, username, is_admin FROM users"
     return execute_query(query, fetchall=True)
+def add_user(user_id, username, is_admin=False):
+    """Добавить пользователя в базу данных."""
+    query = """
+        INSERT OR REPLACE INTO users (user_id, username, is_admin, added_at)
+        VALUES (?, ?, ?, ?)
+    """
+    params = (user_id, username, 1 if is_admin else 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return execute_query(query, params)
+
+def remove_user(user_id):
+    """Удалить пользователя из базы данных."""
+    query = "DELETE FROM users WHERE user_id = ?"
+    return execute_query(query, (user_id,))
+
+def make_admin(user_id):
+    """Сделать пользователя администратором."""
+    query = "UPDATE users SET is_admin = 1 WHERE user_id = ?"
+    return execute_query(query, (user_id,))
