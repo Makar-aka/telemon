@@ -88,12 +88,14 @@ def handle_start_help(message):
         "/status - Проверить статус подключения\n"
         "/force_chk - Принудительная проверка обновлений\n"
         "/force_del - Удалить все торренты из qBittorrent\n"
+        "/all_2qbit - Добавить все торренты заново в qBittorrent\n"
         "/users - Просмотр списка пользователей\n" 
         "/adduser - Добавить пользователя\n"
         "/deluser - Удалить пользователя\n"
         "/addadmin - Сделать пользователя администратором"
     )
     user_states[message.from_user.id] = State.IDLE
+
 
 # Обработчик для всех сообщений с ссылками
 @bot.message_handler(func=lambda message: message.text and 
@@ -187,6 +189,55 @@ def handle_force_del(message):
         bot.send_message(message.chat.id, "Все торренты успешно удалены из qBittorrent.")
     else:
         bot.send_message(message.chat.id, "Не удалось удалить торренты из qBittorrent.")
+
+@bot.message_handler(commands=['all_2qbit'])
+@admin_required
+def handle_all_2qbit(message):
+    """Добавляет все торренты из мониторинга в qBittorrent заново."""
+    bot.send_message(message.chat.id, "Начинаю добавление всех торрентов в qBittorrent...")
+    
+    series_list = get_all_series()
+    if not series_list:
+        bot.send_message(message.chat.id, "Нет торрентов для добавления.")
+        return
+    
+    success_count = 0
+    fail_count = 0
+    
+    for series in series_list:
+        series_id, url, title, last_updated, added_by, added_at = series
+        
+        # Получаем информацию о странице
+        page_info = rutracker.get_page_info(url)
+        if not page_info:
+            bot.send_message(message.chat.id, f"Не удалось получить информацию о странице для {title}")
+            fail_count += 1
+            continue
+        
+        # Скачиваем и добавляем торрент
+        tag = f"id_{series_id}"
+        torrent_data = rutracker.download_torrent(page_info["topic_id"])
+        
+        if torrent_data:
+            # Удаляем существующие торренты с таким же тегом, чтобы избежать дублирования
+            qbittorrent.delete_torrent_by_tag(tag, delete_files=False)
+            
+            # Добавляем торрент заново
+            if qbittorrent.add_torrent(torrent_data, title, tags=tag):
+                success_count += 1
+                logger.info(f"Торрент '{title}' успешно добавлен в qBittorrent")
+            else:
+                fail_count += 1
+                logger.error(f"Не удалось добавить торрент '{title}' в qBittorrent")
+        else:
+            fail_count += 1
+            logger.error(f"Не удалось скачать торрент для {title}")
+    
+    bot.send_message(
+        message.chat.id, 
+        f"Добавление торрентов завершено.\nУспешно: {success_count}\nНеудачно: {fail_count}"
+    )
+
 
 @bot.message_handler(commands=['force_chk'])
 @admin_required
