@@ -83,3 +83,8 @@ def series_exists(url):
     """Проверить, существует ли сериал в базе данных."""
     query = "SELECT 1 FROM series WHERE url = ?"
     return execute_query(query, (url,), fetchone=True) is not None
+
+def get_all_users():
+    """Получить список всех пользователей."""
+    query = "SELECT user_id, username, is_admin FROM users"
+    return execute_query(query, fetchall=True)
