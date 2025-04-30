@@ -42,6 +42,7 @@ def execute_query(query, params=(), fetchone=False, fetchall=False):
                 return cursor.fetchone()
             if fetchall:
                 return cursor.fetchall()
+            return True
     except sqlite3.Error as e:
         logger.error(f"Ошибка выполнения запроса: {e}")
         return None
@@ -53,7 +54,15 @@ def add_series(url, title, last_updated, added_by):
         VALUES (?, ?, ?, ?, ?)
     """
     params = (url, title, last_updated, added_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    return execute_query(query, params)
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.lastrowid
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка добавления сериала: {e}")
+        return None
 
 def update_series(series_id, title=None, last_updated=None):
     """Обновить информацию о сериале."""
@@ -69,10 +78,14 @@ def update_series(series_id, title=None, last_updated=None):
     params.append(series_id)
     return execute_query(query, params)
 
-def get_all_series():
-    """Получить список всех сериалов."""
-    query = "SELECT id, url, title, last_updated, added_by, added_at FROM series"
-    return execute_query(query, fetchall=True)
+def get_all_series(series_id=None):
+    """Получить список всех сериалов или конкретный сериал по ID."""
+    if series_id is not None:
+        query = "SELECT id, url, title, last_updated, added_by, added_at FROM series WHERE id = ?"
+        return execute_query(query, (series_id,), fetchone=True)
+    else:
+        query = "SELECT id, url, title, last_updated, added_by, added_at FROM series"
+        return execute_query(query, fetchall=True)
 
 def remove_series(series_id):
     """Удалить сериал из базы данных."""
@@ -88,6 +101,7 @@ def get_all_users():
     """Получить список всех пользователей."""
     query = "SELECT user_id, username, is_admin FROM users"
     return execute_query(query, fetchall=True)
+
 def add_user(user_id, username, is_admin=False):
     """Добавить пользователя в базу данных."""
     query = """
