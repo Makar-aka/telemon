@@ -120,3 +120,38 @@ def make_admin(user_id):
     """Сделать пользователя администратором."""
     query = "UPDATE users SET is_admin = 1 WHERE user_id = ?"
     return execute_query(query, (user_id,))
+
+def is_user_allowed(user_id, admin_required=False):
+    """
+    Проверить, имеет ли пользователь доступ к боту.
+    
+    Args:
+        user_id: ID пользователя
+        admin_required: True, если требуются права администратора
+    
+    Returns:
+        bool: True, если пользователь имеет доступ, False в противном случае
+    """
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            if admin_required:
+                cursor.execute("SELECT 1 FROM users WHERE user_id = ? AND is_admin = 1", (user_id,))
+            else:
+                cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+            return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка проверки пользователя: {e}")
+        return False
+
+def has_admins():
+    """Проверить наличие администраторов в базе данных."""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+            count = cursor.fetchone()[0]
+            return count > 0
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка проверки наличия администраторов: {e}")
+        return False

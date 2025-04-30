@@ -1,10 +1,11 @@
 import logging
 from telebot import TeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import TELEGRAM_TOKEN
-from database import get_all_series, update_series, add_series, remove_series, get_all_users, add_user, remove_user, make_admin, series_exists
+from config import TELEGRAM_TOKEN, ADMIN_ID
+from database import get_all_series, update_series, add_series, remove_series, get_all_users, add_user, remove_user, make_admin, series_exists, is_user_allowed, has_admins
 from rutracker_client import RutrackerClient
 from qbittorrent_client import QBittorrentClient
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 bot = TeleBot(TELEGRAM_TOKEN)
@@ -23,7 +24,59 @@ class State:
     WAITING_FOR_USER_ID_TO_DELETE = 4
     WAITING_FOR_SERIES_ID = 5
 
+# Декоратор для проверки доступа пользователя
+def user_access_required(func):
+    @wraps(func)
+    def wrapper(message, *args, **kwargs):
+        user_id = message.from_user.id
+        
+        # Если пользователь - главный администратор из .env
+        if user_id == ADMIN_ID:
+            # Если это первый запуск и нет администратора в базе
+            if not has_admins():
+                add_user(ADMIN_ID, message.from_user.username or str(ADMIN_ID), is_admin=True)
+                bot.send_message(
+                    message.chat.id,
+                    "Вы добавлены как главный администратор."
+                )
+            return func(message, *args, **kwargs)
+        
+        # Проверяем, есть ли пользователь в базе данных
+        if is_user_allowed(user_id):
+            return func(message, *args, **kwargs)
+        else:
+            bot.send_message(
+                message.chat.id,
+                "У вас нет доступа к этому боту. Обратитесь к администратору для получения доступа."
+            )
+            logger.warning(f"Попытка несанкционированного доступа от пользователя {user_id}")
+            return None
+    return wrapper
+
+# Декоратор для проверки прав администратора
+def admin_required(func):
+    @wraps(func)
+    def wrapper(message, *args, **kwargs):
+        user_id = message.from_user.id
+        
+        # Если пользователь - главный администратор из .env
+        if user_id == ADMIN_ID:
+            return func(message, *args, **kwargs)
+        
+        # Проверяем, является ли пользователь администратором в базе данных
+        if is_user_allowed(user_id, admin_required=True):
+            return func(message, *args, **kwargs)
+        else:
+            bot.send_message(
+                message.chat.id,
+                "У вас нет прав администратора для выполнения этой команды."
+            )
+            logger.warning(f"Попытка выполнения административной команды пользователем {user_id}")
+            return None
+    return wrapper
+
 @bot.message_handler(commands=['start', 'help'])
+@user_access_required
 def handle_start_help(message):
     bot.send_message(
         message.chat.id,
@@ -42,10 +95,11 @@ def handle_start_help(message):
     )
     user_states[message.from_user.id] = State.IDLE
 
-# Добавьте обработчик для всех сообщений, содержащих ссылки (URLs)
+# Обработчик для всех сообщений с ссылками
 @bot.message_handler(func=lambda message: message.text and 
                      (message.text.startswith('http://') or message.text.startswith('https://')) and
                      'rutracker.org' in message.text.lower())
+@user_access_required
 def handle_all_links(message):
     url = message.text.strip()
     user_id = message.from_user.id
@@ -85,8 +139,8 @@ def handle_all_links(message):
     else:
         bot.send_message(message.chat.id, "Не удалось добавить сериал в базу данных.")
 
-
 @bot.message_handler(commands=['list'])
+@user_access_required
 def handle_list(message):
     series_list = get_all_series()
     if not series_list:
@@ -102,16 +156,19 @@ def handle_list(message):
     bot.send_message(message.chat.id, "Список отслеживаемых сериалов:", reply_markup=markup)
 
 @bot.message_handler(commands=['add'])
+@user_access_required
 def handle_add(message):
     bot.send_message(message.chat.id, "Отправьте ссылку на раздачу для добавления.")
     user_states[message.from_user.id] = State.WAITING_FOR_URL
 
 @bot.message_handler(commands=['del'])
+@user_access_required
 def handle_del(message):
     bot.send_message(message.chat.id, "Отправьте ID сериала для удаления.")
     user_states[message.from_user.id] = State.WAITING_FOR_SERIES_ID
 
 @bot.message_handler(commands=['status'])
+@user_access_required
 def handle_status(message):
     status_message = (
         f"Статус подключения:\n"
@@ -121,6 +178,7 @@ def handle_status(message):
     bot.send_message(message.chat.id, status_message)
 
 @bot.message_handler(commands=['force_del'])
+@admin_required
 def handle_force_del(message):
     """Удаляет все торренты из категории 'from telegram' в qBittorrent."""
     bot.send_message(message.chat.id, "Удаление всех торрентов из категории 'from telegram'...")
@@ -130,8 +188,8 @@ def handle_force_del(message):
     else:
         bot.send_message(message.chat.id, "Не удалось удалить торренты из qBittorrent.")
 
-
 @bot.message_handler(commands=['force_chk'])
+@admin_required
 def handle_force_chk(message):
     bot.send_message(message.chat.id, "Начинаю проверку всех ссылок на обновления...")
     
@@ -167,6 +225,7 @@ def handle_force_chk(message):
     bot.send_message(message.chat.id, "Проверка завершена.")
 
 @bot.message_handler(commands=['users'])
+@admin_required
 def handle_users(message):
     users = get_all_users()
     if not users:
@@ -177,21 +236,25 @@ def handle_users(message):
     bot.send_message(message.chat.id, f"Список пользователей:\n{user_list}")
 
 @bot.message_handler(commands=['adduser'])
+@admin_required
 def handle_adduser(message):
     bot.send_message(message.chat.id, "Отправьте ID и имя пользователя для добавления в формате: ID Имя")
     user_states[message.from_user.id] = State.WAITING_FOR_USER_ID
 
 @bot.message_handler(commands=['deluser'])
+@admin_required
 def handle_deluser(message):
     bot.send_message(message.chat.id, "Отправьте ID пользователя для удаления.")
     user_states[message.from_user.id] = State.WAITING_FOR_USER_ID_TO_DELETE
 
 @bot.message_handler(commands=['addadmin'])
+@admin_required
 def handle_addadmin(message):
     bot.send_message(message.chat.id, "Отправьте ID пользователя для назначения администратором.")
     user_states[message.from_user.id] = State.WAITING_FOR_ADMIN_ID
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('series_'))
+@user_access_required
 def handle_series_callback(call):
     series_id = int(call.data.split('_')[1])
     series = get_all_series(series_id=series_id)
@@ -214,6 +277,7 @@ def handle_series_callback(call):
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
+@user_access_required
 def handle_update_callback(call):
     series_id = int(call.data.split('_')[1])
     series = get_all_series(series_id=series_id)
@@ -240,6 +304,7 @@ def handle_update_callback(call):
         bot.answer_callback_query(call.id, "Обновлений нет.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('delete_'))
+@user_access_required
 def handle_delete_callback(call):
     series_id = int(call.data.split('_')[1])
     
@@ -258,6 +323,7 @@ def handle_delete_callback(call):
         bot.answer_callback_query(call.id, "Не удалось удалить сериал.")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'back_to_list')
+@user_access_required
 def handle_list_callback(call):
     series_list = get_all_series()
     if not series_list:
@@ -282,6 +348,7 @@ def handle_list_callback(call):
     )
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states and user_states[message.from_user.id] == State.WAITING_FOR_URL)
+@user_access_required
 def handle_url(message):
     url = message.text.strip()
     user_id = message.from_user.id
@@ -325,6 +392,7 @@ def handle_url(message):
         bot.send_message(message.chat.id, "Не удалось добавить сериал в базу данных.")
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states and user_states[message.from_user.id] == State.WAITING_FOR_SERIES_ID)
+@user_access_required
 def process_series_id_to_delete(message):
     try:
         series_id = int(message.text.strip())
@@ -345,6 +413,7 @@ def process_series_id_to_delete(message):
         bot.send_message(message.chat.id, "ID должен быть числом.")
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states and user_states[message.from_user.id] == State.WAITING_FOR_USER_ID)
+@admin_required
 def process_user_id(message):
     try:
         parts = message.text.split(' ', 1)
@@ -366,6 +435,7 @@ def process_user_id(message):
         bot.send_message(message.chat.id, "ID должен быть числом.")
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states and user_states[message.from_user.id] == State.WAITING_FOR_USER_ID_TO_DELETE)
+@admin_required
 def process_user_id_to_delete(message):
     try:
         user_id = int(message.text.strip())
@@ -381,6 +451,7 @@ def process_user_id_to_delete(message):
         bot.send_message(message.chat.id, "ID должен быть числом.")
 
 @bot.message_handler(func=lambda message: message.from_user.id in user_states and user_states[message.from_user.id] == State.WAITING_FOR_ADMIN_ID)
+@admin_required
 def process_admin_id(message):
     try:
         user_id = int(message.text.strip())
@@ -394,3 +465,9 @@ def process_admin_id(message):
             bot.send_message(message.chat.id, "Не удалось назначить администратора. Проверьте ID.")
     except ValueError:
         bot.send_message(message.chat.id, "ID должен быть числом.")
+
+# Обработчик для неизвестных команд
+@bot.message_handler(func=lambda message: True)
+def handle_unknown(message):
+    if message.from_user.id == ADMIN_ID or is_user_allowed(message.from_user.id):
+        bot.send_message(message.chat.id, "Неизвестная команда. Используйте /help для получения списка команд.")
