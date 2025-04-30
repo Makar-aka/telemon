@@ -42,6 +42,49 @@ def handle_start_help(message):
     )
     user_states[message.from_user.id] = State.IDLE
 
+# Добавьте обработчик для всех сообщений, содержащих ссылки (URLs)
+@bot.message_handler(func=lambda message: message.text and 
+                     (message.text.startswith('http://') or message.text.startswith('https://')) and
+                     'rutracker.org' in message.text.lower())
+def handle_all_links(message):
+    url = message.text.strip()
+    user_id = message.from_user.id
+    
+    # Проверяем корректность URL
+    topic_id = rutracker.get_topic_id(url)
+    if not topic_id:
+        bot.send_message(
+            message.chat.id,
+            "Это не похоже на ссылку на раздачу RuTracker. Пожалуйста, проверьте URL."
+        )
+        return
+    
+    # Проверяем, не отслеживается ли уже этот сериал
+    if series_exists(url):
+        bot.send_message(message.chat.id, "Этот сериал уже отслеживается.")
+        return
+    
+    # Получаем информацию о странице
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.send_message(message.chat.id, "Не удалось получить информацию о странице. Проверьте ссылку.")
+        return
+    
+    # Добавляем сериал в базу данных
+    series_id = add_series(url, page_info["title"], page_info["time_text"], user_id)
+    if series_id:
+        bot.send_message(message.chat.id, f"Сериал \"{page_info['title']}\" добавлен для отслеживания.")
+        
+        # Скачиваем и добавляем торрент
+        tag = f"id_{series_id}"
+        torrent_data = rutracker.download_torrent(page_info["topic_id"])
+        if torrent_data and qbittorrent.add_torrent(torrent_data, page_info["title"], tags=tag):
+            bot.send_message(message.chat.id, "Торрент успешно добавлен в qBittorrent.")
+        else:
+            bot.send_message(message.chat.id, "Не удалось добавить торрент в qBittorrent.")
+    else:
+        bot.send_message(message.chat.id, "Не удалось добавить сериал в базу данных.")
+
 
 @bot.message_handler(commands=['list'])
 def handle_list(message):
