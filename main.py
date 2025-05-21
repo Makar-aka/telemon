@@ -14,14 +14,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация клиентов
-rutracker = RutrackerClient()
-qbittorrent = QBittorrentClient()
-
 # Флаг для остановки фоновых потоков
 stop_event = threading.Event()
 
-def check_series_updates():
+def check_series_updates(rutracker, qbittorrent):
     """Проверка обновлений сериалов."""
     while not stop_event.is_set():
         try:
@@ -33,8 +29,16 @@ def check_series_updates():
                 continue
 
             for series in series_list:
-                series_id, url, title, _, _, last_updated, _, _ = series
+                # Корректная распаковка 6 значений
+                series_id, url, title, last_updated, added_by, added_at = series
                 logger.info(f"Проверка сериала: {title}, последнее обновление: {last_updated}")
+
+                if rutracker is None:
+                    logger.error("RutrackerClient не инициализирован")
+                    continue
+                if qbittorrent is None:
+                    logger.error("QBittorrentClient не инициализирован")
+                    continue
 
                 page_info = rutracker.get_page_info(url)
                 if not page_info:
@@ -65,7 +69,23 @@ def main():
         init_db()
         logger.info("База данных инициализирована")
 
-        update_thread = threading.Thread(target=check_series_updates, daemon=True)
+        # Инициализация клиентов с обработкой ошибок
+        try:
+            rutracker = RutrackerClient()
+        except Exception as e:
+            logger.error(f"Ошибка инициализации RutrackerClient: {e}")
+            rutracker = None
+
+        try:
+            qbittorrent = QBittorrentClient()
+        except Exception as e:
+            logger.error(f"Ошибка инициализации QBittorrentClient: {e}")
+            qbittorrent = None
+
+        if rutracker is None or qbittorrent is None:
+            logger.error("Один из клиентов не инициализирован. Бот будет работать только с доступными функциями.")
+
+        update_thread = threading.Thread(target=check_series_updates, args=(rutracker, qbittorrent), daemon=True)
         update_thread.start()
         logger.info("Фоновый поток для проверки обновлений запущен")
 
