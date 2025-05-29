@@ -1,4 +1,6 @@
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 import threading
 import time
 from bot import bot
@@ -7,11 +9,22 @@ from rutracker_client import RutrackerClient
 from qbittorrent_client import QBittorrentClient
 from config import CHECK_INTERVAL
 
-# Настройка логирования
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# --- Настройка логирования ---
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FILE = "bot.log"
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
+file_handler.setFormatter(formatter)
+file_handler.setLevel(LOG_LEVEL)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+console_handler.setLevel(LOG_LEVEL)
+
+logging.basicConfig(level=LOG_LEVEL, handlers=[file_handler, console_handler])
+
 logger = logging.getLogger(__name__)
 
 # Флаг для остановки фоновых потоков
@@ -29,7 +42,6 @@ def check_series_updates(rutracker, qbittorrent):
                 continue
 
             for series in series_list:
-                # Корректная распаковка 6 значений
                 series_id, url, title, last_updated, added_by, added_at = series
                 logger.info(f"Проверка сериала: {title}, последнее обновление: {last_updated}")
 
@@ -61,42 +73,44 @@ def check_series_updates(rutracker, qbittorrent):
             logger.info("Проверка обновлений завершена")
         except Exception as e:
             logger.error(f"Ошибка при проверке обновлений: {e}")
+            time.sleep(30)  # Задержка при ошибке
         time.sleep(CHECK_INTERVAL)
 
 def main():
     """Основная функция."""
-    try:
-        init_db()
-        logger.info("База данных инициализирована")
-
-        # Инициализация клиентов с обработкой ошибок
+    while True:
         try:
-            rutracker = RutrackerClient()
+            init_db()
+            logger.info("База данных инициализирована")
+
+            try:
+                rutracker = RutrackerClient()
+            except Exception as e:
+                logger.error(f"Ошибка инициализации RutrackerClient: {e}")
+                rutracker = None
+
+            try:
+                qbittorrent = QBittorrentClient()
+            except Exception as e:
+                logger.error(f"Ошибка инициализации QBittorrentClient: {e}")
+                qbittorrent = None
+
+            if rutracker is None or qbittorrent is None:
+                logger.error("Один из клиентов не инициализирован. Бот будет работать только с доступными функциями.")
+
+            update_thread = threading.Thread(target=check_series_updates, args=(rutracker, qbittorrent), daemon=True)
+            update_thread.start()
+            logger.info("Фоновый поток для проверки обновлений запущен")
+
+            logger.info("Запуск бота...")
+            bot.polling(none_stop=True, interval=0)
+        except KeyboardInterrupt:
+            logger.info("Получен сигнал на остановку")
+            stop_event.set()
+            break
         except Exception as e:
-            logger.error(f"Ошибка инициализации RutrackerClient: {e}")
-            rutracker = None
-
-        try:
-            qbittorrent = QBittorrentClient()
-        except Exception as e:
-            logger.error(f"Ошибка инициализации QBittorrentClient: {e}")
-            qbittorrent = None
-
-        if rutracker is None or qbittorrent is None:
-            logger.error("Один из клиентов не инициализирован. Бот будет работать только с доступными функциями.")
-
-        update_thread = threading.Thread(target=check_series_updates, args=(rutracker, qbittorrent), daemon=True)
-        update_thread.start()
-        logger.info("Фоновый поток для проверки обновлений запущен")
-
-        logger.info("Запуск бота...")
-        bot.polling(none_stop=True, interval=0)
-    except KeyboardInterrupt:
-        logger.info("Получен сигнал на остановку")
-        stop_event.set()
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        stop_event.set()
+            logger.error(f"Ошибка в главном цикле: {e}")
+            time.sleep(30)  # Задержка перед повторным запуском
 
 if __name__ == "__main__":
     main()
