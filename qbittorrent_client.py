@@ -126,30 +126,30 @@ class QBittorrentClient:
             logger.error(f"Ошибка удаления торрентов по тегу: {e}")
             return False
 
-def remove_tag_and_category_by_tag(self, tag):
-    """
-    Удаляет тег и категорию у всех торрентов с указанным тегом.
-    """
-    try:
-        if self.client is None:
-            if not self.connect():
+    def remove_tag_and_category_by_tag(self, tag):
+        """
+        Удаляет тег и категорию у всех торрентов с указанным тегом.
+        """
+        try:
+            if self.client is None:
+                if not self.connect():
+                    return False
+
+            torrents = self.client.torrents_info(tag=tag)
+            if not torrents:
+                logger.info(f"Торренты с тегом '{tag}' не найдены")
                 return False
 
-        torrents = self.client.torrents_info(tag=tag)
-        if not torrents:
-            logger.info(f"Торренты с тегом '{tag}' не найдены")
+            success = True
+            for torrent in torrents:
+                try:
+                    self.client.torrents_set_tags(torrent.hash, "")  # Удалить все теги
+                    self.client.torrents_set_category(torrent.hash, "")  # Удалить категорию
+                    logger.info(f"Сброшены тег и категория для торрента: {torrent.name}")
+                except Exception as e:
+                    logger.error(f"Ошибка при сбросе тега/категории для {torrent.name}: {e}")
+                    success = False
+            return success
+        except Exception as e:
+            logger.error(f"Ошибка при удалении тегов и категории по тегу: {e}")
             return False
-
-        success = True
-        for torrent in torrents:
-            try:
-                self.client.torrents_set_tags(torrent.hash, "")  # Удалить все теги
-                self.client.torrents_set_category(torrent.hash, "")  # Удалить категорию
-                logger.info(f"Сброшены тег и категория для торрента: {torrent.name}")
-            except Exception as e:
-                logger.error(f"Ошибка при сбросе тега/категории для {torrent.name}: {e}")
-                success = False
-        return success
-    except Exception as e:
-        logger.error(f"Ошибка при удалении тегов и категории по тегу: {e}")
-        return False
