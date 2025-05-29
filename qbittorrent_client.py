@@ -126,3 +126,16 @@ class QBittorrentClient:
             logger.error(f"Ошибка удаления торрентов по тегу: {e}")
             return False
 
+    def remove_tag_and_category_by_tag(self, tag):
+         # Получить все торренты с этим тегом
+        torrents = self.client.torrents_info(tag=tag)
+        success = True
+        for torrent in torrents:
+            hash_ = torrent['hash']
+            try:
+                self.client.set_torrent_tags(hash_, "")  # Удалить все теги
+                self.client.set_torrent_category(hash_, "")  # Удалить категорию
+            except Exception:
+                success = False
+        return success
+

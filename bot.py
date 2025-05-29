@@ -305,6 +305,7 @@ def handle_series_callback(call):
     series_id, url, title, last_updated, added_by, added_at = series
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🔄 Обновить", callback_data=f"update_{series_id}"))
+    markup.add(InlineKeyboardButton("🚫 Не следить", callback_data=f"untrack_{series_id}"))
     markup.add(InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{series_id}"))
     markup.add(InlineKeyboardButton("🔗 Ссылка", url=url))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_list"))
@@ -314,7 +315,25 @@ def handle_series_callback(call):
         message_id=call.message.message_id,
         reply_markup=markup
     )
-
+@bot.callback_query_handler(func=lambda call: call.data.startswith('untrack_'))
+@user_access_required
+def handle_untrack_callback(call):
+    if not is_qbittorrent_available():
+        bot.answer_callback_query(call.id, "qBittorrent временно недоступен.")
+        return
+    series_id = int(call.data.split('_')[1])
+    # Получаем tag
+    tag = f"id_{series_id}"
+    # Удаляем сериал из базы
+    if remove_series(series_id):
+        # Удаляем метку и категорию у торрента
+        if qbittorrent.remove_tag_and_category_by_tag(tag):
+            bot.answer_callback_query(call.id, "Сериал больше не отслеживается. Раздача осталась в qBittorrent.")
+        else:
+            bot.answer_callback_query(call.id, "Сериал удалён из мониторинга, но не удалось снять метку/категорию.")
+        handle_list_callback(call)
+    else:
+        bot.answer_callback_query(call.id, "Не удалось удалить сериал из мониторинга.")
 @bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
 @user_access_required
 def handle_update_callback(call):
