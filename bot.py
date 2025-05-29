@@ -322,18 +322,32 @@ def handle_untrack_callback(call):
         bot.answer_callback_query(call.id, "qBittorrent временно недоступен.")
         return
     series_id = int(call.data.split('_')[1])
-    # Получаем tag
+    series = get_all_series(series_id=series_id)
+    if not series:
+        bot.answer_callback_query(call.id, "Сериал не найден.")
+        return
+    _, url, title, last_updated, _, _ = series
     tag = f"id_{series_id}"
-    # Удаляем сериал из базы
-    if remove_series(series_id):
-        # Удаляем метку и категорию у торрента
-        if qbittorrent.remove_tag_and_category_by_tag(tag):
-            bot.answer_callback_query(call.id, "Сериал больше не отслеживается. Раздача осталась в qBittorrent.")
-        else:
-            bot.answer_callback_query(call.id, "Сериал удалён из мониторинга, но не удалось снять метку/категорию.")
-        handle_list_callback(call)
+
+    # 1. Удаляем торрент по тегу
+    qbittorrent.delete_torrent_by_tag(tag, delete_files=False)
+
+    # 2. Скачиваем .torrent-файл
+    page_info = rutracker.get_page_info(url)
+    if not page_info:
+        bot.answer_callback_query(call.id, "Не удалось получить информацию о странице.")
+        return
+    torrent_data = rutracker.download_torrent(page_info["topic_id"])
+    if torrent_data:
+        # 3. Добавляем торрент без тегов и категории
+        qbittorrent.add_torrent(torrent_data, title=page_info["title"], tags="")
+        bot.answer_callback_query(call.id, "Сериал больше не отслеживается. Раздача осталась в qBittorrent без метки.")
     else:
-        bot.answer_callback_query(call.id, "Не удалось удалить сериал из мониторинга.")
+        bot.answer_callback_query(call.id, "Не удалось повторно добавить торрент в qBittorrent.")
+
+    # 4. Удаляем сериал из базы
+    remove_series(series_id)
+    handle_list_callback(call)
 @bot.callback_query_handler(func=lambda call: call.data.startswith('update_'))
 @user_access_required
 def handle_update_callback(call):
