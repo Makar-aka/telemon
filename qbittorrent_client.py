@@ -143,8 +143,8 @@ class QBittorrentClient:
             success = True
             for torrent in torrents:
                 try:
-                    self.client.torrents_set_tags(torrent.hash, "")  # Удалить все теги
-                    self.client.torrents_set_category(torrent.hash, "")  # Удалить категорию
+                    self.client.torrents.set_tags(torrent.hash, "")      # Удалить все теги
+                    self.client.torrents.set_category(torrent.hash, "")  # Удалить категорию
                     logger.info(f"Сброшены тег и категория для торрента: {torrent.name}")
                 except Exception as e:
                     logger.error(f"Ошибка при сбросе тега/категории для {torrent.name}: {e}")
