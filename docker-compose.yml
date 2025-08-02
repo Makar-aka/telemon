@@ -3,10 +3,11 @@ version: '3.8'
 services:
   bot:
     build: https://github.com/Makar-aka/telemon.git#master
-    container_name: rutracker-bot
+    container_name: telemon
     env_file:
       - .env
     volumes:
       - ./downloads:/downloads
-      - ./bot-logs:/app
+      - ./bot-logs:/app/bot-logs
+      #- ./bot-logs:/app
     restart: unless-stopped
