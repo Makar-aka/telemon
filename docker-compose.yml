@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: rutracker-bot
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/downloads
+      - ./bot-logs:/app
+    restart: unless-stopped

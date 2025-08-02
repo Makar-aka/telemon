@@ -9,7 +9,7 @@ class QBittorrentClient:
         self.url = QBITTORRENT_URL
         self.username = QBITTORRENT_USERNAME
         self.password = QBITTORRENT_PASSWORD
-        self.save_path = QBITTORRENT_SAVE_PATH if 'QBITTORRENT_SAVE_PATH' in globals() else ""
+        self.save_path = QBITTORRENT_SAVE_PATH
         self.client = None
         self.connect()
 
@@ -105,4 +105,28 @@ class QBittorrentClient:
             return success
         except Exception as e:
             logger.error(f"Ошибка при удалении тегов и категории по тегу: {e}")
+            return False
+
+    def clear_category(self, category='from telegram', delete_files=False):
+        """
+        Удаляет все торренты из указанной категории.
+        """
+        try:
+            if self.client is None:
+                if not self.connect():
+                    return False
+
+            torrents = self.client.torrents_info(category=category)
+            if not torrents:
+                logger.info(f"Торренты в категории '{category}' не найдены")
+                return True  # Нет торрентов — значит, всё удалено
+
+            for torrent in torrents:
+                logger.info(f"Удаляю торрент: {torrent.name}")
+                self.client.torrents_delete(delete_files=delete_files, hashes=torrent.hash)
+
+            logger.info(f"Все торренты из категории '{category}' успешно удалены")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка при удалении торрентов из категории '{category}': {e}")
             return False
