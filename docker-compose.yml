@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   bot:
-    build: .
+    build: https://github.com/Makar-aka/telemon.git
     container_name: rutracker-bot
     env_file:
       - .env
