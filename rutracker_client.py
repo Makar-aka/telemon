@@ -6,15 +6,29 @@ from config import RUTRACKER_USERNAME, RUTRACKER_PASSWORD, PROXY_URL, PROXY_USER
 
 logger = logging.getLogger(__name__)
 
+def get_proxy_dict():
+    """Формирует словарь прокси для requests на основе переменных окружения."""
+    if PROXY_URL:
+        if PROXY_USERNAME and PROXY_PASSWORD:
+            # Вставляем логин и пароль в url
+            from urllib.parse import urlparse, urlunparse
+            parsed = list(urlparse(PROXY_URL))
+            parsed[1] = f"{PROXY_USERNAME}:{PROXY_PASSWORD}@{parsed[1]}"
+            proxy_url = urlunparse(parsed)
+        else:
+            proxy_url = PROXY_URL
+        return {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
+    return {}
+
 class RutrackerClient:
     def __init__(self):
         self.username = RUTRACKER_USERNAME
         self.password = RUTRACKER_PASSWORD
         self.session = requests.Session()
-        self.proxies = {
-            "http": f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_URL}",
-            "https": f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_URL}",
-        } if PROXY_URL else None
+        self.proxies = get_proxy_dict()
         self.is_logged_in = self.login()
 
     def login(self):
@@ -23,7 +37,7 @@ class RutrackerClient:
             response = self.session.post(
                 "https://rutracker.org/forum/login.php",
                 data={"login_username": self.username, "login_password": self.password, "login": "Вход"},
-                proxies=self.proxies,
+                proxies=self.proxies if self.proxies else None,
                 timeout=20
             )
             response.raise_for_status()
@@ -52,7 +66,7 @@ class RutrackerClient:
                 logger.error(f"Не удалось получить ID темы из URL: {url}")
                 return None
 
-            response = self.session.get(url, proxies=self.proxies, timeout=20)
+            response = self.session.get(url, proxies=self.proxies if self.proxies else None, timeout=20)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -71,7 +85,11 @@ class RutrackerClient:
             if not self.is_logged_in and not self.login():
                 return None
 
-            response = self.session.get(f"https://rutracker.org/forum/dl.php?t={topic_id}", proxies=self.proxies, timeout=30)
+            response = self.session.get(
+                f"https://rutracker.org/forum/dl.php?t={topic_id}",
+                proxies=self.proxies if self.proxies else None,
+                timeout=30
+            )
             response.raise_for_status()
             if "html" in response.headers.get("content-type", "").lower():
                 logger.error("Получен HTML вместо торрент-файла")
