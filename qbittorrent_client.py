@@ -1,6 +1,12 @@
 import logging
 import qbittorrentapi
-from config import QBITTORRENT_URL, QBITTORRENT_USERNAME, QBITTORRENT_PASSWORD, QBITTORRENT_SAVE_PATH
+from config import (
+    QBITTORRENT_URL,
+    QBITTORRENT_USERNAME,
+    QBITTORRENT_PASSWORD,
+    QBITTORRENT_SAVE_PATH,
+    QBITTORRENT_CATEGORY,  # добавлено для поддержки категории
+)
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +16,7 @@ class QBittorrentClient:
         self.username = QBITTORRENT_USERNAME
         self.password = QBITTORRENT_PASSWORD
         self.save_path = QBITTORRENT_SAVE_PATH
+        self.category = QBITTORRENT_CATEGORY if 'QBITTORRENT_CATEGORY' in globals() else ""
         self.client = None
         self.connect()
 
@@ -30,7 +37,7 @@ class QBittorrentClient:
             self.client = None
             return False
 
-    def add_torrent(self, torrent_data, title="", tags=""):
+    def add_torrent(self, torrent_data, title="", tags="", category=None):
         """
         Добавление торрента в qBittorrent.
         """
@@ -44,12 +51,17 @@ class QBittorrentClient:
                 options['tags'] = tags
             if hasattr(self, 'save_path') and self.save_path:
                 options['savepath'] = self.save_path
+            # Добавляем категорию, если она указана
+            if category is None:
+                category = self.category
+            if category:
+                options['category'] = category
 
             self.client.torrents_add(
                 torrent_files=torrent_data,
                 **options
             )
-            logger.info(f"Торрент '{title}' добавлен в qBittorrent с тегами: {tags}")
+            logger.info(f"Торрент '{title}' добавлен в qBittorrent с тегами: {tags}, категорией: {category}")
             return True
         except Exception as e:
             logger.error(f"Ошибка добавления торрента в qBittorrent: {e}")
