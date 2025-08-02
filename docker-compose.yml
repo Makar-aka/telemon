@@ -9,5 +9,5 @@ services:
     volumes:
       - ./downloads:/downloads
       - ./bot-logs:/app/bot-logs
-      #- ./bot-logs:/app
+      - ./db:/app/db
     restart: unless-stopped

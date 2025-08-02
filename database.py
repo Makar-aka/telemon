@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-DB_FILE = "rutracker_bot.db"
+DB_FILE = "db/telemon_bot.db"
 
 def init_db():
     """Инициализация базы данных."""
