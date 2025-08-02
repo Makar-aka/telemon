@@ -2,4 +2,3 @@ python-telegram-bot==13.7
 python-dotenv==0.19.2
 rutracker-api==0.22.92
 qbittorrent-api==2022.4.30
-requests==2.26.0
